@@ -1,10 +1,13 @@
 import { spawn } from 'node:child_process';
 import ffmpegPath from 'ffmpeg-static';
 
+/** 优先用 FFMPEG_PATH 指定的系统 ffmpeg（如 brew 安装），否则用 ffmpeg-static 自带的二进制 */
+const ffmpegBinary = process.env.FFMPEG_PATH || (ffmpegPath as unknown as string | null);
+
 function run(args: string[], timeoutMs = 60_000): Promise<{ code: number; stderr: string }> {
-  if (!ffmpegPath) return Promise.reject(new Error('当前平台没有可用的 ffmpeg'));
+  if (!ffmpegBinary) return Promise.reject(new Error('当前平台没有可用的 ffmpeg'));
   return new Promise((resolve, reject) => {
-    const proc = spawn(ffmpegPath as unknown as string, args, { windowsHide: true });
+    const proc = spawn(ffmpegBinary, args, { windowsHide: true });
     let stderr = '';
     proc.stderr.on('data', (d: Buffer) => {
       stderr += d.toString();
