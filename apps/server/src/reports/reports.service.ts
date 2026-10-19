@@ -442,7 +442,15 @@ export class ReportsService {
       select: { id: true, confirmedAt: true, resolvedAt: true, reopenCount: true },
     });
     const ids = resolved.map((d) => d.id);
-    const [audits, comments, activity] = await Promise.all([
+    const window = { gte: s.start, lt: s.end };
+    // McpAudit 没有关联到缺陷表，先取项目内的缺陷 id 再计数（不用原生 SQL，避免时区换算出错）
+    const projectDefectIds = (
+      await this.prisma.defect.findMany({
+        where: { projectId: ctx.project.id },
+        select: { id: true },
+      })
+    ).map((d) => d.id);
+    const [audits, comments, mcpCalls, claudeComments] = await Promise.all([
       ids.length
         ? this.prisma.mcpAudit.groupBy({
             by: ['defectId'],
@@ -457,14 +465,14 @@ export class ReportsService {
             _min: { createdAt: true },
           })
         : Promise.resolve([]),
-      this.prisma.$queryRaw<{ mcpCalls: bigint; claudeComments: bigint }[]>`
-        SELECT
-          (SELECT count(*) FROM "McpAudit" a JOIN "Defect" d ON d.id = a."defectId"
-            WHERE d."projectId" = ${ctx.project.id}::uuid
-              AND a."createdAt" >= ${s.start} AND a."createdAt" < ${s.end}) AS "mcpCalls",
-          (SELECT count(*) FROM "Comment" c JOIN "Defect" d ON d.id = c."defectId"
-            WHERE d."projectId" = ${ctx.project.id}::uuid AND c.via = 'claude'
-              AND c."createdAt" >= ${s.start} AND c."createdAt" < ${s.end}) AS "claudeComments"`,
+      projectDefectIds.length
+        ? this.prisma.mcpAudit.count({
+            where: { defectId: { in: projectDefectIds }, createdAt: window },
+          })
+        : Promise.resolve(0),
+      this.prisma.comment.count({
+        where: { via: 'claude', createdAt: window, defect: { projectId: ctx.project.id } },
+      }),
     ]);
     const firstTouch = new Map<string, Date>();
     for (const row of [...audits, ...comments]) {
@@ -506,8 +514,8 @@ export class ReportsService {
         resolved: resolved.length,
         withClaude: claude.length,
         ratio: ratio(claude.length, resolved.length),
-        mcpCalls: Number(activity[0]?.mcpCalls ?? 0),
-        claudeComments: Number(activity[0]?.claudeComments ?? 0),
+        mcpCalls,
+        claudeComments,
       },
       compare: { withClaude: group(claude), withoutClaude: group(others) },
       points: [...buckets].map(([date, b]) => ({

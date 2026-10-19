@@ -94,12 +94,15 @@ export class JobsService implements OnApplicationBootstrap, OnModuleDestroy {
     if (this.running) return false;
     this.running = true;
     try {
+      // Prisma 把 DateTime 按 UTC 存进不带时区的 timestamp 列，而 now() 与这类列比较时会按会话时区换算
+      // （嵌入式 / 云数据库常为 Asia/Shanghai），所以统一用 UTC 墙上时间比较，否则任务会提前 8 小时到期
       const [job] = await this.prisma.$queryRaw<Job[]>`
-        UPDATE "Job" SET status = 'running', "lockedAt" = now(), attempts = attempts + 1, "updatedAt" = now()
+        UPDATE "Job" SET status = 'running', "lockedAt" = (now() AT TIME ZONE 'UTC'),
+          attempts = attempts + 1, "updatedAt" = (now() AT TIME ZONE 'UTC')
         WHERE id = (
           SELECT id FROM "Job"
-          WHERE (status = 'queued' AND "runAt" <= now())
-             OR (status = 'running' AND "lockedAt" < now() - interval '10 minutes')
+          WHERE (status = 'queued' AND "runAt" <= (now() AT TIME ZONE 'UTC'))
+             OR (status = 'running' AND "lockedAt" < (now() AT TIME ZONE 'UTC') - interval '10 minutes')
           ORDER BY "runAt" ASC
           FOR UPDATE SKIP LOCKED
           LIMIT 1

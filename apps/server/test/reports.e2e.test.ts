@@ -276,6 +276,18 @@ describe('reports (e2e)', () => {
     expect(next!.runAt.getTime()).toBeGreaterThan(Date.now());
   });
 
+  it('does not run jobs early when the database session is not in UTC', async () => {
+    const jobs = ctx.app.get(JobsService);
+    // 嵌入式 PostgreSQL 跟随系统时区（Asia/Shanghai）；曾因 now() 与 UTC 存储的 runAt 比较而提前 8 小时执行
+    const job = await jobs.enqueue('test.not-due', {}, { runAt: new Date(Date.now() + 3_600_000) });
+    await jobs.drain();
+    expect(await prisma.job.findUnique({ where: { id: job.id } })).toMatchObject({
+      status: 'queued',
+      attempts: 0,
+    });
+    await prisma.job.delete({ where: { id: job.id } });
+  });
+
   it('breaks down open defects and their age', async () => {
     const dist = await report('distribution');
     expect(dist.total).toBe(2);

@@ -40,6 +40,11 @@ export default async function setup(): Promise<() => Promise<void>> {
 
   return async () => {
     await pg.stop();
-    removeDataDir();
+    // 收尾清理尽力而为：删不掉（进程仍占用文件）也不影响测试结果，下次启动前会再删
+    try {
+      removeDataDir();
+    } catch (err) {
+      console.warn(`测试数据库目录暂未删除，将在下次运行前清理：${(err as Error).message}`);
+    }
   };
 }
