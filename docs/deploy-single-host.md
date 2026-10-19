@@ -29,6 +29,16 @@ LOCAL_STORAGE_SECRET=<openssl rand -hex 32 的结果>
 INGEST_HMAC_SECRET=<openssl rand -hex 32 的结果>
 ```
 
+嵌入式 PostgreSQL 在 Apple Silicon Mac 上是 x86_64 二进制，需要 Rosetta（`softwareupdate --install-rosetta`）。不想装 Rosetta 时改用 Homebrew 的 PostgreSQL，先初始化项目自己的数据目录，之后的 pm2 命令都带上 `PG_BIN_DIR`：
+
+```bash
+brew install postgresql@16
+export PG_BIN_DIR=/opt/homebrew/opt/postgresql@16/bin
+echo defect > /tmp/pgpw && $PG_BIN_DIR/initdb -D .data/pg-system -U defect --pwfile=/tmp/pgpw -A scram-sha-256 -E UTF8 --locale=en_US.UTF-8 && rm /tmp/pgpw
+```
+
+迁移执行前还要建库：`PGPASSWORD=defect $PG_BIN_DIR/createdb -h localhost -p 5433 -U defect defect`（在 `pm2 start` 之后执行）。
+
 启动并初始化数据库：
 
 ```bash
