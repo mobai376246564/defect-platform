@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import {
   PROJECT_ROLES,
   STATUS_CATEGORY,
@@ -96,6 +107,17 @@ export class ProjectsController {
   @Get(':key')
   detail(@CurrentUser() user: AuthUser, @Param('key') key: string) {
     return this.projects.detail(key, user);
+  }
+
+  /** 删除项目，需带 ?confirm=<项目标识> 二次确认 */
+  @Delete(':key')
+  @HttpCode(204)
+  async remove(
+    @CurrentUser() user: AuthUser,
+    @Param('key') key: string,
+    @Query('confirm') confirm?: string,
+  ): Promise<void> {
+    await this.projects.remove(key, user, confirm);
   }
 
   @Patch(':key')

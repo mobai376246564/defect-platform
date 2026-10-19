@@ -21,6 +21,10 @@ export interface ProjectSummary {
   description: string;
   role: ProjectRole;
   openDefects: number;
+  totalDefects: number;
+  memberCount: number;
+  appIds: string[];
+  createdAt: string;
 }
 
 export interface Member {
@@ -323,4 +327,19 @@ export interface ClaudeReport {
   };
   compare: { withClaude: ClaudeGroup; withoutClaude: ClaudeGroup };
   points: { date: string; resolved: number; withClaude: number; ratio: number | null }[];
+}
+
+/** 自定义视图：query 保存列表页地址参数（筛选、排序、分组） */
+export interface SavedViewItem {
+  id: string;
+  name: string;
+  shared: boolean;
+  ownerId: string;
+  query: Record<string, string>;
+}
+
+export interface DefectGroups {
+  groupBy: string;
+  total: number;
+  groups: { value: string; count: number }[];
 }

@@ -2,11 +2,13 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from './client';
 import type {
   DefectDetail,
+  DefectGroups,
   DefectRow,
   NotificationPage,
   Page,
   ProjectDetail,
   ProjectSummary,
+  SavedViewItem,
 } from './types';
 
 export const qk = {
@@ -14,6 +16,9 @@ export const qk = {
   project: (key: string) => ['project', key] as const,
   defects: (key: string, query: Record<string, unknown>) => ['defects', key, query] as const,
   defect: (key: string, code: string) => ['defect', key, code] as const,
+  defectGroups: (key: string, query: Record<string, unknown>) =>
+    ['defects', key, 'groups', query] as const,
+  views: (key: string) => ['views', key] as const,
   tokens: ['tokens'] as const,
   adminUsers: ['admin-users'] as const,
   notifications: ['notifications'] as const,
@@ -70,5 +75,22 @@ export function useReport<T>(key: string, name: string, query: Record<string, un
     queryKey: qk.report(key, name, query),
     queryFn: () => api<T>(`/projects/${key}/reports/${name}`, { query }),
     placeholderData: (prev) => prev,
+  });
+}
+
+/** 分组统计；与列表共用 defects 前缀，新建或修改缺陷后一起失效 */
+export function useDefectGroups(key: string, query: Record<string, unknown>, enabled: boolean) {
+  return useQuery({
+    queryKey: qk.defectGroups(key, query),
+    queryFn: () => api<DefectGroups>(`/projects/${key}/defects/groups`, { query }),
+    enabled,
+    placeholderData: (prev) => prev,
+  });
+}
+
+export function useSavedViews(key: string) {
+  return useQuery({
+    queryKey: qk.views(key),
+    queryFn: () => api<SavedViewItem[]>(`/projects/${key}/views`),
   });
 }

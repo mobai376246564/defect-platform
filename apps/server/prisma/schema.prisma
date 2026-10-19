@@ -80,6 +80,7 @@ model Project {
   modules  Module[]
   versions Version[]
   defects  Defect[]
+  views    SavedView[]
 }
 
 model ProjectMember {
@@ -139,6 +140,9 @@ model Defect {
   statusCategory String
   severity       String
   priority       String?
+  /// 严重程度、优先级的等级（0 最高），由服务端随 severity / priority 维护，用于按等级排序
+  severityRank   Int       @default(2)
+  priorityRank   Int?
   frequency      String?
   bugType        String?
   resolution     String?
@@ -335,4 +339,21 @@ model DefectDailySnapshot {
   createdAt      DateTime @default(now())
 
   @@id([projectId, date, statusCategory, severity])
+}
+
+/// 自定义视图（方案 6.6）：保存一组组合筛选、排序与分组。shared=true 为项目公开视图（需 view.publish 权限）
+model SavedView {
+  id        String   @id @default(uuid()) @db.Uuid
+  projectId String   @db.Uuid
+  ownerId   String   @db.Uuid
+  name      String
+  shared    Boolean  @default(false)
+  /// { keyword, quick, filters, sort, groupBy }，结构见 apps/web 的 views.ts
+  query     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
 }

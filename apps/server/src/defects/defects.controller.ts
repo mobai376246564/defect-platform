@@ -6,11 +6,13 @@ import { ProjectAccessService } from '../projects/project-access.service';
 import {
   commentSchema,
   createDefectSchema,
+  groupsQuerySchema,
   linkSchema,
   listQuerySchema,
   transitionSchema,
   updateDefectSchema,
   type CreateDefectInput,
+  type GroupsQuery,
   type LinkInput,
   type ListQuery,
   type TransitionInput,
@@ -36,6 +38,17 @@ export class DefectsController {
   ) {
     const ctx = await this.access.require(key, user, 'defect.view');
     return this.defects.list(ctx, user, query);
+  }
+
+  /** 分组统计（须在 :code 之前声明，避免 groups 被当成缺陷编号） */
+  @Get('groups')
+  async groups(
+    @CurrentUser() user: AuthUser,
+    @Param('key') key: string,
+    @Query(new ZodPipe(groupsQuerySchema)) query: GroupsQuery,
+  ) {
+    const ctx = await this.access.require(key, user, 'defect.view');
+    return this.defects.groups(ctx, user, query);
   }
 
   @Post()

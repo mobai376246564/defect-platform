@@ -47,14 +47,51 @@ export class ProjectsService {
       _count: { _all: true },
     });
     const countMap = new Map(openCounts.map((c) => [c.projectId, c._count._all]));
+    const [totals, memberCounts] = await Promise.all([
+      this.prisma.defect.groupBy({
+        by: ['projectId'],
+        where: { projectId: { in: projects.map((p) => p.id) }, deletedAt: null },
+        _count: { _all: true },
+      }),
+      this.prisma.projectMember.groupBy({
+        by: ['projectId'],
+        where: { projectId: { in: projects.map((p) => p.id) } },
+        _count: { _all: true },
+      }),
+    ]);
+    const totalMap = new Map(totals.map((c) => [c.projectId, c._count._all]));
+    const memberMap = new Map(memberCounts.map((c) => [c.projectId, c._count._all]));
     return projects.map((p) => ({
       id: p.id,
       key: p.key,
       name: p.name,
       description: p.description,
+      appIds: p.appIds,
+      createdAt: p.createdAt,
       role: user.isSystemAdmin ? 'admin' : p.members[0]?.role,
       openDefects: countMap.get(p.id) ?? 0,
+      totalDefects: totalMap.get(p.id) ?? 0,
+      memberCount: memberMap.get(p.id) ?? 0,
     }));
+  }
+
+  /**
+   * 删除项目（仅系统管理员）：连同缺陷、附件记录、评论、历史、成员、模块、版本、视图一起删除，
+   * 需要传入项目标识二次确认。对象存储里的附件文件不立即删除，由存储桶生命周期规则清理。
+   */
+  async remove(projectKey: string, user: AuthUser, confirmKey: string | undefined): Promise<void> {
+    if (!user.isSystemAdmin) throw new ForbiddenException('只有系统管理员可以删除项目');
+    const project = await this.prisma.project.findUnique({ where: { key: projectKey } });
+    if (!project) throw new NotFoundException('项目不存在');
+    if (confirmKey !== project.key) {
+      throw new BadRequestException('请输入项目标识确认删除');
+    }
+    await this.prisma.$transaction([
+      // 这两张表没有外键约束，需要手动清理
+      this.prisma.notification.deleteMany({ where: { projectId: project.id } }),
+      this.prisma.defectDailySnapshot.deleteMany({ where: { projectId: project.id } }),
+      this.prisma.project.delete({ where: { id: project.id } }),
+    ]);
   }
 
   async create(

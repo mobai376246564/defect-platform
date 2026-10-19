@@ -15,6 +15,7 @@ import { ProjectsModule } from './projects/projects.module';
 import { ReportsModule } from './reports/reports.module';
 import { StorageModule } from './storage/storage.module';
 import { UsersController } from './users/users.controller';
+import { ViewsModule } from './views/views.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { UsersController } from './users/users.controller';
     GitWebhooksModule,
     NotificationsModule,
     ReportsModule,
+    ViewsModule,
   ],
   controllers: [HealthController, UsersController],
 })

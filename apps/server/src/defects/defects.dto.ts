@@ -1,12 +1,19 @@
 import {
   BUG_TYPE,
   DEFECT_SOURCE,
+  FILTER_FIELD_KEYS,
+  FILTER_OP_LABEL,
   FREQUENCY,
+  GROUP_FIELDS,
+  MAX_FILTER_CONDITIONS,
   PRIORITY,
   RESOLUTION,
   ROOT_CAUSE,
   SEVERITY,
   STATUS_CATEGORY,
+  type FilterField,
+  type FilterOp,
+  type GroupField,
 } from '@defect/shared';
 import { z } from 'zod';
 
@@ -27,6 +34,28 @@ const multi = <T extends z.ZodType<string, string>>(item: T) =>
     .transform((v) => (Array.isArray(v) ? v : v.split(',')).map((s) => s.trim()).filter(Boolean))
     .pipe(z.array(item))
     .optional();
+
+const filterValueSchema = z.union([
+  z.string().max(200),
+  z.number(),
+  z.tuple([z.string().max(40).nullable(), z.string().max(40).nullable()]),
+  z.array(z.string().max(100)).max(50),
+]);
+
+export const filterGroupSchema = z.object({
+  logic: z.enum(['and', 'or']).default('and'),
+  conditions: z
+    .array(
+      z.object({
+        field: z.enum(FILTER_FIELD_KEYS as [FilterField, ...FilterField[]]),
+        op: z.enum(Object.keys(FILTER_OP_LABEL) as [FilterOp, ...FilterOp[]]),
+        value: filterValueSchema.optional(),
+      }),
+    )
+    .max(MAX_FILTER_CONDITIONS),
+});
+
+const groupFieldSchema = z.enum(Object.keys(GROUP_FIELDS) as [GroupField, ...GroupField[]]);
 
 export const createDefectSchema = z.object({
   title: z.string().trim().min(1).max(120),
@@ -110,10 +139,31 @@ export const listQuerySchema = z.object({
   keyword: z.string().trim().max(100).optional(),
   createdFrom: z.iso.datetime({ offset: true }).optional(),
   createdTo: z.iso.datetime({ offset: true }).optional(),
-  sort: z.enum(['createdAt', 'updatedAt', 'dueAt', 'seq']).default('createdAt'),
-  order: z.enum(['asc', 'desc']).default('desc'),
+  /** 多字段排序 severity:asc,createdAt:desc；也兼容旧写法 sort=createdAt&order=desc */
+  sort: z.string().max(200).optional(),
+  order: z.enum(['asc', 'desc']).optional(),
+  /** 组合筛选：JSON 编码的 FilterGroup（见 @defect/shared filters.ts） */
+  filters: z
+    .string()
+    .max(10_000)
+    .transform((s, ctx) => {
+      try {
+        return JSON.parse(s) as unknown;
+      } catch {
+        ctx.addIssue({ code: 'custom', message: 'filters 不是合法的 JSON' });
+        return z.NEVER;
+      }
+    })
+    .pipe(filterGroupSchema)
+    .optional(),
+  /** 分组浏览时只看某一组：groupField=severity&groupValue=fatal，空值组用 __none__ */
+  groupField: groupFieldSchema.optional(),
+  groupValue: z.string().max(100).optional(),
   page: z.coerce.number().int().min(1).default(1),
   /** 看板一次最多取 200 条（与批量操作上限一致） */
   pageSize: z.coerce.number().int().min(1).max(200).default(20),
 });
 export type ListQuery = z.infer<typeof listQuerySchema>;
+
+export const groupsQuerySchema = listQuerySchema.extend({ groupBy: groupFieldSchema });
+export type GroupsQuery = z.infer<typeof groupsQuerySchema>;

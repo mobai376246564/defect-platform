@@ -9,8 +9,14 @@ import {
   availableTransitions,
   checkTransition,
   findState,
+  GROUP_NONE,
   hasPermission,
+  PRIORITY_RANK,
+  SEVERITY_RANK,
   type DefectSource,
+  type GroupField,
+  type Priority,
+  type Severity,
   type ProjectRole,
   type WorkflowTransition,
 } from '@defect/shared';
@@ -19,8 +25,10 @@ import { Prisma, type Defect } from '../generated/prisma/client';
 import { NotificationsService, type NotifyInput } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { ProjectContext } from '../projects/project-access.service';
+import { buildDefectOrderBy, buildDefectWhere } from './defect-query';
 import type {
   CreateDefectInput,
+  GroupsQuery,
   LinkInput,
   ListQuery,
   TransitionInput,
@@ -115,6 +123,8 @@ export class DefectsService {
           actual: input.actual,
           severity: input.severity,
           priority: input.priority,
+          severityRank: severityRank(input.severity),
+          priorityRank: priorityRank(input.priority ?? null),
           frequency: input.frequency,
           bugType: input.bugType,
           moduleId: input.moduleId,
@@ -150,33 +160,11 @@ export class DefectsService {
   }
 
   async list(ctx: ProjectContext, user: AuthUser, q: ListQuery) {
-    const where: Prisma.DefectWhereInput = { projectId: ctx.project.id, deletedAt: null };
-    if (q.status?.length) where.status = { in: q.status };
-    if (q.statusCategory?.length) where.statusCategory = { in: q.statusCategory };
-    if (q.severity?.length) where.severity = { in: q.severity };
-    if (q.priority?.length) where.priority = { in: q.priority };
-    if (q.source?.length) where.source = { in: q.source };
-    if (q.owner) where.ownerIds = { has: q.owner === 'me' ? user.id : q.owner };
-    if (q.reporter) where.reporterId = q.reporter === 'me' ? user.id : q.reporter;
-    if (q.moduleId) where.moduleId = q.moduleId;
-    if (q.createdFrom || q.createdTo) {
-      where.createdAt = {
-        ...(q.createdFrom ? { gte: new Date(q.createdFrom) } : {}),
-        ...(q.createdTo ? { lte: new Date(q.createdTo) } : {}),
-      };
-    }
-    if (q.keyword) {
-      where.OR = [
-        { code: { equals: q.keyword.toUpperCase() } },
-        { title: { contains: q.keyword, mode: 'insensitive' } },
-        { description: { contains: q.keyword, mode: 'insensitive' } },
-        { logSummary: { contains: q.keyword, mode: 'insensitive' } },
-      ];
-    }
+    const where = buildDefectWhere(ctx.project.id, user, q);
     const [items, total] = await this.prisma.$transaction([
       this.prisma.defect.findMany({
         where,
-        orderBy: [{ [q.sort]: q.order }, { seq: 'desc' }],
+        orderBy: buildDefectOrderBy(q),
         skip: (q.page - 1) * q.pageSize,
         take: q.pageSize,
         select: {
@@ -200,6 +188,46 @@ export class DefectsService {
       this.prisma.defect.count({ where }),
     ]);
     return { items, total, page: q.page, pageSize: q.pageSize };
+  }
+
+  /**
+   * 分组统计：返回每组的值与数量（空值组为 __none__），前端按组展开后再用 groupField / groupValue 分页取数。
+   * 严重程度、优先级按等级排，状态按工作流顺序排，其余按数量从多到少。
+   */
+  async groups(ctx: ProjectContext, user: AuthUser, q: GroupsQuery) {
+    const where = buildDefectWhere(ctx.project.id, user, { ...q, groupField: undefined });
+    let groups: { value: string; count: number }[];
+    if (q.groupBy === 'owner') {
+      // 一个缺陷可能有多个处理人，按人展开计数
+      const rows = await this.prisma.defect.findMany({ where, select: { ownerIds: true } });
+      const counts = new Map<string, number>();
+      for (const r of rows) {
+        for (const id of r.ownerIds.length ? r.ownerIds : [GROUP_NONE]) {
+          counts.set(id, (counts.get(id) ?? 0) + 1);
+        }
+      }
+      groups = [...counts].map(([value, count]) => ({ value, count }));
+    } else {
+      const field = q.groupBy;
+      const rows = await this.prisma.defect.groupBy({
+        by: [field],
+        where,
+        _count: { _all: true },
+      });
+      groups = rows.map((r) => ({
+        value:
+          (r as Record<string, unknown>)[field] == null
+            ? GROUP_NONE
+            : String((r as Record<string, unknown>)[field]),
+        count: r._count._all,
+      }));
+    }
+    const rank = groupRank(q.groupBy, ctx);
+    groups.sort((a, b) =>
+      rank ? rank(a.value) - rank(b.value) || b.count - a.count : b.count - a.count,
+    );
+    const total = await this.prisma.defect.count({ where });
+    return { groupBy: q.groupBy, total, groups };
   }
 
   async detail(ctx: ProjectContext, code: string) {
@@ -430,6 +458,10 @@ export class DefectsService {
     via: Via,
     extra?: { field: string; oldValue: unknown; newValue: unknown },
   ): Promise<Defect> {
+    // 等级列随严重程度、优先级同步，用于按等级排序
+    if (typeof data.severity === 'string') data.severityRank = severityRank(data.severity);
+    if (data.priority !== undefined)
+      data.priorityRank = priorityRank(data.priority as string | null);
     const history: Prisma.DefectHistoryCreateManyInput[] = [];
     for (const field of TRACKED_FIELDS) {
       if (!(field in data) || data[field as keyof typeof data] === undefined) continue;
@@ -517,6 +549,35 @@ export class DefectsService {
       current = mod.parentId;
     }
     return projectDefault ? [projectDefault] : [];
+  }
+}
+
+function severityRank(severity: string): number {
+  return SEVERITY_RANK[severity as Severity] ?? 2;
+}
+
+function priorityRank(priority: string | null): number | null {
+  return priority ? (PRIORITY_RANK[priority as Priority] ?? null) : null;
+}
+
+/** 分组的排序：返回 null 时按数量排序 */
+function groupRank(field: GroupField, ctx: ProjectContext): ((v: string) => number) | null {
+  const last = (n: number | undefined) => n ?? 99;
+  switch (field) {
+    case 'severity':
+      return (v) => last(SEVERITY_RANK[v as Severity]);
+    case 'priority':
+      return (v) => last(PRIORITY_RANK[v as Priority]);
+    case 'status':
+      return (v) => {
+        const i = ctx.workflow.states.findIndex((s) => s.key === v);
+        return i < 0 ? 99 : i;
+      };
+    case 'statusCategory':
+      return (v) => last({ todo: 0, doing: 1, verifying: 2, done: 3 }[v]);
+    default:
+      // 空值组放最后
+      return (v) => (v === GROUP_NONE ? 1 : 0);
   }
 }
 
