@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { hmacSha256Hex } from '../src/common/crypto';
+import { PrismaService } from '../src/prisma/prisma.service';
 import { auth, createTestApp, createUser, projectKey, type TestContext } from './helpers';
 
 describe('Git webhooks (e2e)', () => {
@@ -347,5 +348,56 @@ describe('Git webhooks (e2e)', () => {
       via: 'system',
       body: '【标记已合并】MR 已合并：https://gitlab.example.com/acme/app/-/merge_requests/4',
     });
+  });
+
+  it('fills the current iteration version as the fix version when an MR merges', async () => {
+    const addVersion = async (name: string) =>
+      (await ctx.http.post(`${base()}/versions`).set(auth(admin.token)).send({ name }).expect(201))
+        .body as { id: string };
+    const v1 = await addVersion('3.13.0');
+    const v2 = await addVersion('3.12.9');
+
+    // 只能选本项目的版本；只有项目管理员能设置
+    await ctx.http
+      .patch(base())
+      .set(auth(admin.token))
+      .send({ fixVersionId: '00000000-0000-4000-8000-000000000000' })
+      .expect(400);
+    await ctx.http.patch(base()).set(auth(dev.token)).send({ fixVersionId: v1.id }).expect(403);
+    await ctx.http.patch(base()).set(auth(admin.token)).send({ fixVersionId: v1.id }).expect(200);
+    expect((await ctx.http.get(base()).set(auth(admin.token)).expect(200)).body.fixVersionId).toBe(
+      v1.id,
+    );
+
+    const plain = await newDefect('in_review');
+    const preset = await newDefect('in_review');
+    // 已手动填过修复版本的缺陷不被覆盖
+    const prisma = ctx.app.get(PrismaService);
+    await prisma.defect.updateMany({ where: { code: preset }, data: { versionFixedId: v2.id } });
+
+    for (const [code, n] of [
+      [plain, 21],
+      [preset, 22],
+    ] as const) {
+      const res = await github('pull_request', githubPr(code, 'closed', true, n)).expect(200);
+      expect(res.body.transitioned).toEqual([code]);
+    }
+
+    const dp = await detail(plain);
+    expect(dp).toMatchObject({ status: 'resolved', versionFixedId: v1.id });
+    expect(dp.history).toContainEqual(
+      expect.objectContaining({ field: 'versionFixedId', newValue: v1.id, via: 'system' }),
+    );
+    expect(dp.comments.at(-1).body).toBe(
+      '【标记已合并】MR 已合并：https://github.com/acme/app/pull/21，修复版本 3.13.0',
+    );
+    const dpre = await detail(preset);
+    expect(dpre).toMatchObject({ status: 'resolved', versionFixedId: v2.id });
+
+    // 清空当前迭代版本后只流转、不填版本
+    await ctx.http.patch(base()).set(auth(admin.token)).send({ fixVersionId: null }).expect(200);
+    const later = await newDefect('in_review');
+    await github('pull_request', githubPr(later, 'closed', true, 23)).expect(200);
+    expect(await detail(later)).toMatchObject({ status: 'resolved', versionFixedId: null });
   });
 });

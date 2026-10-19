@@ -73,6 +73,8 @@ model Project {
   /// 缺陷编号自增序列
   defectSeq   Int      @default(0)
   defaultOwnerId String? @db.Uuid
+  /// 当前迭代版本：MR 合并、缺陷自动转为已解决时填入修复版本（方案 7.7），为空则不填
+  fixVersionId String? @db.Uuid
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

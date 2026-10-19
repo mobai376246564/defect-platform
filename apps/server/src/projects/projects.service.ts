@@ -137,6 +137,7 @@ export class ProjectsService {
       appIds: project.appIds,
       repoUrl: project.repoUrl,
       defaultOwnerId: project.defaultOwnerId,
+      fixVersionId: project.fixVersionId,
       myRole: role,
       workflow,
       modules,
@@ -175,9 +176,16 @@ export class ProjectsService {
       appIds?: string[];
       repoUrl?: string | null;
       defaultOwnerId?: string | null;
+      fixVersionId?: string | null;
     },
   ) {
     const { project } = await this.access.require(projectKey, user, 'project.configure');
+    if (patch.fixVersionId) {
+      const version = await this.prisma.version.findFirst({
+        where: { id: patch.fixVersionId, projectId: project.id },
+      });
+      if (!version) throw new BadRequestException('当前迭代版本必须是本项目的版本');
+    }
     return this.prisma.project.update({
       where: { id: project.id },
       data: patch,

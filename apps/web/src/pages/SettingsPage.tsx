@@ -206,13 +206,50 @@ export function SettingsPage() {
           }
           style={{ marginBottom: 16 }}
         >
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: 8,
+              marginBottom: 12,
+            }}
+          >
+            <Typography.Text>当前迭代版本</Typography.Text>
+            <Select
+              allowClear
+              size="small"
+              placeholder="未设置"
+              disabled={!isAdmin}
+              style={{ width: 160 }}
+              value={project.fixVersionId ?? undefined}
+              options={project.versions.map((v) => ({ value: v.id, label: v.name }))}
+              onChange={(v?: string) => void mutate('', 'PATCH', { fixVersionId: v ?? null })}
+            />
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              MR 合并、缺陷自动转为已解决时，填入这个版本作为修复版本
+            </Typography.Text>
+          </div>
           <Table<VersionItem>
             rowKey="id"
             size="small"
             pagination={false}
             dataSource={project.versions}
             columns={[
-              { title: '版本', dataIndex: 'name' },
+              {
+                title: '版本',
+                dataIndex: 'name',
+                render: (name: string, v) => (
+                  <span>
+                    {name}
+                    {v.id === project.fixVersionId && (
+                      <Tag color="processing" bordered={false} style={{ marginInlineStart: 6 }}>
+                        当前迭代
+                      </Tag>
+                    )}
+                  </span>
+                ),
+              },
               { title: 'Build', dataIndex: 'build', render: (v) => v ?? '—' },
               {
                 title: 'Git commit',

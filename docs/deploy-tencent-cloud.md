@@ -126,7 +126,7 @@ docker compose -f deploy/docker-compose.prod.yml logs -f server
 
 ## 7. 在 GitHub/GitLab 配置 Webhook（方案 7.7）
 
-配置后，平台按分支名、提交信息、MR 标题里的缺陷编号自动关联 branch / commit / MR；MR 合并时，处于「待代码审核」的缺陷以系统身份流转为「已解决」并指派给验证人，评论中记录 MR 链接。其他状态的缺陷只关联、不流转。每个项目单独配置。
+配置后，平台按分支名、提交信息、MR 标题里的缺陷编号自动关联 branch / commit / MR；MR 合并时，处于「待代码审核」的缺陷以系统身份流转为「已解决」并指派给验证人，评论中记录 MR 链接。其他状态的缺陷只关联、不流转。若在「项目设置 → 版本」里选了「当前迭代版本」，自动解决时会把它填为缺陷的修复版本（已手动填过的不覆盖）；发版后记得切换到下一个迭代版本。每个项目单独配置。
 
 1. **生成密钥**：项目管理员打开「项目设置 → 集成」，复制 Webhook 地址（形如 `https://defects.example.com/api/v1/webhooks/git/APP`，GitHub、GitLab 共用），点击「生成密钥」并立即复制（只显示一次）。重置后旧密钥立即失效，需同步更新 Git 平台。
 2. **GitHub**：仓库 Settings → Webhooks → Add webhook

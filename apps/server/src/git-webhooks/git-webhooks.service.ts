@@ -90,6 +90,7 @@ export class GitWebhooksService {
       return;
     }
 
+    const fixVersion = event.merged ? await this.fixVersion(project) : null;
     for (const code of findDefectCodes(key, event.title, event.sourceBranch)) {
       const defect = await this.link(
         ctx,
@@ -103,15 +104,32 @@ export class GitWebhooksService {
         (t) => t.key === MERGE_TRANSITION && t.from === defect.status,
       );
       if (!canMerge) continue;
+      // 填入当前迭代版本作为修复版本；已手动填过的不覆盖
+      const setVersion = fixVersion && !defect.versionFixedId ? fixVersion : null;
       await this.defects.transition(
         ctx,
         { kind: 'system' },
         code,
-        { transition: MERGE_TRANSITION, values: {}, comment: `MR 已合并：${event.url}` },
+        {
+          transition: MERGE_TRANSITION,
+          values: setVersion ? { versionFixedId: setVersion.id } : {},
+          comment: setVersion
+            ? `MR 已合并：${event.url}，修复版本 ${setVersion.name}`
+            : `MR 已合并：${event.url}`,
+        },
         'system',
       );
       result.transitioned.push(code);
     }
+  }
+
+  /** 项目设置里的“当前迭代版本”；未设置或版本已不属于本项目时返回 null，此时只流转不填版本 */
+  private async fixVersion(project: Project): Promise<{ id: string; name: string } | null> {
+    if (!project.fixVersionId) return null;
+    return this.prisma.version.findFirst({
+      where: { id: project.fixVersionId, projectId: project.id },
+      select: { id: true, name: true },
+    });
   }
 
   /** 关联到缺陷；缺陷不存在时跳过，已有相同关联时不重复写历史（平台会重复投递、MR 每次更新都会推送）。 */
@@ -120,10 +138,10 @@ export class GitWebhooksService {
     code: string,
     link: LinkInput,
     result: WebhookResult,
-  ): Promise<{ id: string; status: string } | null> {
+  ): Promise<{ id: string; status: string; versionFixedId: string | null } | null> {
     const defect = await this.prisma.defect.findFirst({
       where: { projectId: ctx.project.id, code, deletedAt: null },
-      select: { id: true, status: true },
+      select: { id: true, status: true, versionFixedId: true },
     });
     if (!defect) {
       this.logger.debug(`Webhook 引用的缺陷 ${code} 不存在，忽略`);

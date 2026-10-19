@@ -58,6 +58,8 @@ export interface ProjectDetail {
   appIds: string[];
   repoUrl: string | null;
   defaultOwnerId: string | null;
+  /** 当前迭代版本：MR 合并自动解决缺陷时填入修复版本 */
+  fixVersionId: string | null;
   myRole: ProjectRole;
   workflow: WorkflowDefinition;
   modules: ModuleItem[];

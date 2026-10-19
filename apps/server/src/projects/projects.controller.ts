@@ -36,6 +36,8 @@ const updateProjectSchema = z.object({
   appIds: z.array(z.string().min(1)).optional(),
   repoUrl: z.url().nullable().optional(),
   defaultOwnerId: z.uuid().nullable().optional(),
+  /** 当前迭代版本：MR 合并自动解决缺陷时填入修复版本 */
+  fixVersionId: z.uuid().nullable().optional(),
 });
 
 const roleSchema = z.enum(PROJECT_ROLES as [string, ...string[]]);
