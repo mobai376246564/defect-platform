@@ -1,0 +1,190 @@
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { DEFAULT_WORKFLOW, validateWorkflow, type WorkflowDefinition } from '@defect/shared';
+import type { AuthUser } from '../common/auth-user';
+import type { Prisma, ProjectRole } from '../generated/prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+import { ProjectAccessService } from './project-access.service';
+
+@Injectable()
+export class ProjectsService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly access: ProjectAccessService,
+  ) {}
+
+  async listForUser(user: AuthUser) {
+    const where: Prisma.ProjectWhereInput = user.isSystemAdmin
+      ? {}
+      : { members: { some: { userId: user.id } } };
+    const projects = await this.prisma.project.findMany({
+      where,
+      orderBy: { createdAt: 'asc' },
+      include: { members: { where: { userId: user.id }, select: { role: true } } },
+    });
+    const openCounts = await this.prisma.defect.groupBy({
+      by: ['projectId'],
+      where: {
+        projectId: { in: projects.map((p) => p.id) },
+        statusCategory: { not: 'done' },
+        deletedAt: null,
+      },
+      _count: { _all: true },
+    });
+    const countMap = new Map(openCounts.map((c) => [c.projectId, c._count._all]));
+    return projects.map((p) => ({
+      id: p.id,
+      key: p.key,
+      name: p.name,
+      description: p.description,
+      role: user.isSystemAdmin ? 'admin' : p.members[0]?.role,
+      openDefects: countMap.get(p.id) ?? 0,
+    }));
+  }
+
+  async create(
+    user: AuthUser,
+    input: { key: string; name: string; description?: string; appIds?: string[] },
+  ) {
+    if (!user.isSystemAdmin) throw new ForbiddenException('只有系统管理员可以创建项目');
+    const exists = await this.prisma.project.findUnique({ where: { key: input.key } });
+    if (exists) throw new ConflictException(`项目标识 ${input.key} 已存在`);
+    return this.prisma.project.create({
+      data: {
+        key: input.key,
+        name: input.name,
+        description: input.description ?? '',
+        appIds: input.appIds ?? [],
+        workflow: DEFAULT_WORKFLOW as unknown as Prisma.InputJsonValue,
+        members: { create: { userId: user.id, role: 'admin' } },
+      },
+    });
+  }
+
+  async detail(projectKey: string, user: AuthUser) {
+    const { project, role, workflow } = await this.access.resolve(projectKey, user);
+    const [modules, versions, members] = await Promise.all([
+      this.prisma.module.findMany({ where: { projectId: project.id }, orderBy: { name: 'asc' } }),
+      this.prisma.version.findMany({
+        where: { projectId: project.id },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.projectMember.findMany({
+        where: { projectId: project.id },
+        include: { user: { select: { id: true, name: true, email: true } } },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
+    return {
+      id: project.id,
+      key: project.key,
+      name: project.name,
+      description: project.description,
+      appIds: project.appIds,
+      repoUrl: project.repoUrl,
+      defaultOwnerId: project.defaultOwnerId,
+      myRole: role,
+      workflow,
+      modules,
+      versions,
+      members: members.map((m) => ({ ...m.user, role: m.role })),
+    };
+  }
+
+  async update(
+    projectKey: string,
+    user: AuthUser,
+    patch: {
+      name?: string;
+      description?: string;
+      appIds?: string[];
+      repoUrl?: string | null;
+      defaultOwnerId?: string | null;
+    },
+  ) {
+    const { project } = await this.access.require(projectKey, user, 'project.configure');
+    return this.prisma.project.update({ where: { id: project.id }, data: patch });
+  }
+
+  async updateWorkflow(projectKey: string, user: AuthUser, workflow: WorkflowDefinition) {
+    const { project } = await this.access.require(projectKey, user, 'project.configure');
+    const errors = validateWorkflow(workflow);
+    if (errors.length > 0)
+      throw new BadRequestException({ message: '工作流配置有误', issues: errors });
+    // 删除状态前，必须先把该状态下的缺陷迁走（方案 6.7）
+    const keys = workflow.states.map((s) => s.key);
+    const orphan = await this.prisma.defect.count({
+      where: { projectId: project.id, status: { notIn: keys }, deletedAt: null },
+    });
+    if (orphan > 0) {
+      throw new BadRequestException(`还有 ${orphan} 个缺陷处于被删除的状态，请先迁移`);
+    }
+    await this.prisma.$transaction([
+      this.prisma.project.update({
+        where: { id: project.id },
+        data: { workflow: workflow as unknown as Prisma.InputJsonValue },
+      }),
+      // 状态类别可能被修改，同步冗余字段
+      ...workflow.states.map((s) =>
+        this.prisma.defect.updateMany({
+          where: { projectId: project.id, status: s.key },
+          data: { statusCategory: s.category },
+        }),
+      ),
+    ]);
+    return workflow;
+  }
+
+  async addMember(projectKey: string, user: AuthUser, email: string, role: ProjectRole) {
+    const { project } = await this.access.require(projectKey, user, 'project.members');
+    const target = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    if (!target) throw new NotFoundException(`用户 ${email} 不存在，请先由系统管理员创建`);
+    return this.prisma.projectMember.upsert({
+      where: { projectId_userId: { projectId: project.id, userId: target.id } },
+      create: { projectId: project.id, userId: target.id, role },
+      update: { role },
+    });
+  }
+
+  async removeMember(projectKey: string, user: AuthUser, userId: string): Promise<void> {
+    const { project } = await this.access.require(projectKey, user, 'project.members');
+    await this.prisma.projectMember.deleteMany({ where: { projectId: project.id, userId } });
+  }
+
+  async addModule(
+    projectKey: string,
+    user: AuthUser,
+    input: { name: string; parentId?: string | null; ownerId?: string | null },
+  ) {
+    const { project } = await this.access.require(projectKey, user, 'project.configure');
+    return this.prisma.module.create({ data: { projectId: project.id, ...input } });
+  }
+
+  async updateModule(
+    projectKey: string,
+    user: AuthUser,
+    id: string,
+    patch: { name?: string; ownerId?: string | null },
+  ) {
+    const { project } = await this.access.require(projectKey, user, 'project.configure');
+    const { count } = await this.prisma.module.updateMany({
+      where: { id, projectId: project.id },
+      data: patch,
+    });
+    if (count === 0) throw new NotFoundException('模块不存在');
+  }
+
+  async addVersion(
+    projectKey: string,
+    user: AuthUser,
+    input: { name: string; build?: string; commit?: string },
+  ) {
+    const { project } = await this.access.require(projectKey, user, 'project.configure');
+    return this.prisma.version.create({ data: { projectId: project.id, ...input } });
+  }
+}

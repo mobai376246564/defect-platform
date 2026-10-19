@@ -1,0 +1,8 @@
+node_modules
+dist
+coverage
+.data
+apps/server/src/generated
+apps/server/prisma/migrations
+调研
+package-lock.json

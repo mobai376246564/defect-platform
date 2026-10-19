@@ -1,0 +1,72 @@
+import { z } from 'zod';
+
+const boolString = z
+  .enum(['true', 'false', '1', '0'])
+  .default('false')
+  .transform((v) => v === 'true' || v === '1');
+
+const envSchema = z
+  .object({
+    NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+    PORT: z.coerce.number().int().positive().default(3000),
+    PUBLIC_BASE_URL: z.url().default('http://localhost:3000'),
+    WEB_ORIGIN: z.string().default('http://localhost:5173'),
+
+    DATABASE_URL: z.string().min(1),
+
+    JWT_SECRET: z.string().min(16, 'JWT_SECRET 至少 16 位'),
+    JWT_EXPIRES_IN: z.string().default('12h'),
+
+    STORAGE_DRIVER: z.enum(['local', 'cos']).default('local'),
+    LOCAL_STORAGE_DIR: z.string().default('../../.data/storage'),
+    LOCAL_STORAGE_SECRET: z.string().default('dev-local-storage-secret'),
+    COS_SECRET_ID: z.string().optional(),
+    COS_SECRET_KEY: z.string().optional(),
+    COS_BUCKET: z.string().optional(),
+    COS_REGION: z.string().default('ap-guangzhou'),
+    COS_APPID: z.string().optional(),
+
+    INGEST_HMAC_SECRET: z.string().min(8, 'INGEST_HMAC_SECRET 至少 8 位'),
+    RECONCILE_INTERVAL_MINUTES: z.coerce.number().int().min(0).default(10),
+    RUN_WORKER: boolString.default(true),
+  })
+  .superRefine((env, ctx) => {
+    if (env.STORAGE_DRIVER === 'cos') {
+      for (const k of ['COS_SECRET_ID', 'COS_SECRET_KEY', 'COS_BUCKET', 'COS_APPID'] as const) {
+        if (!env[k])
+          ctx.addIssue({ code: 'custom', path: [k], message: `STORAGE_DRIVER=cos 时 ${k} 必填` });
+      }
+    }
+    if (env.NODE_ENV === 'production') {
+      if (env.JWT_SECRET.startsWith('change-me')) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['JWT_SECRET'],
+          message: '生产环境必须替换 JWT_SECRET',
+        });
+      }
+      if (env.INGEST_HMAC_SECRET.startsWith('change-me')) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['INGEST_HMAC_SECRET'],
+          message: '生产环境必须替换 INGEST_HMAC_SECRET',
+        });
+      }
+    }
+  });
+
+export type AppEnv = z.infer<typeof envSchema>;
+
+export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
+  const parsed = envSchema.safeParse(source);
+  if (!parsed.success) {
+    const detail = parsed.error.issues
+      .map((i) => `  - ${i.path.join('.')}: ${i.message}`)
+      .join('\n');
+    throw new Error(`环境变量配置有误：\n${detail}`);
+  }
+  return parsed.data;
+}
+
+/** Nest 注入令牌 */
+export const APP_ENV = Symbol('APP_ENV');

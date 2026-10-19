@@ -1,0 +1,43 @@
+{
+  "name": "defect-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "缺陷管理平台：类 TAPD 缺陷后台 + APP 反馈自动建单 + 本地 Claude Code 通过 MCP 读取缺陷修复",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:start": "npm run db:start -w @defect/server",
+    "dev:server": "npm run start:dev -w @defect/server",
+    "dev:web": "npm run dev -w @defect/web"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^16.5.0",
+    "prettier": "^3.6.2",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.46.0"
+  },
+  "allowScripts": {
+    "esbuild@0.27.7": true,
+    "@swc/core@1.16.18": true,
+    "prisma@7.10.1": true,
+    "sharp@0.34.5": true,
+    "@embedded-postgres/windows-x64@18.0.0-beta.15": true,
+    "@prisma/engines@7.10.1": true,
+    "esbuild@0.28.2": true,
+    "ffmpeg-static@5.3.0": true
+  }
+}

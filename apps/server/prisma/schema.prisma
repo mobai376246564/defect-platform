@@ -1,0 +1,296 @@
+// 缺陷平台数据模型（对应方案 6.2）
+// 枚举型字段（严重程度、状态等）存字符串 key，取值由 @defect/shared 统一定义并在 API 层校验，
+// 这样项目可以自定义工作流状态而不必改表结构。
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ProjectRole {
+  admin
+  product
+  tester
+  developer
+  viewer
+}
+
+model User {
+  id            String    @id @default(uuid()) @db.Uuid
+  email         String    @unique
+  name          String
+  passwordHash  String?
+  isSystemAdmin Boolean   @default(false)
+  disabledAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  memberships ProjectMember[]
+  apiTokens   ApiToken[]
+}
+
+/// 个人 API Token，供本地 Claude Code 通过 MCP 访问；只存哈希。
+model ApiToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  name       String
+  prefix     String
+  tokenHash  String    @unique
+  readOnly   Boolean   @default(false)
+  expiresAt  DateTime?
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Project {
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique
+  name        String
+  description String   @default("")
+  /// 绑定的 APP 包名，APP 反馈按包名映射到项目
+  appIds      String[]
+  repoUrl     String?
+  /// 工作流定义（WorkflowDefinition），见 @defect/shared
+  workflow    Json
+  /// 缺陷编号自增序列
+  defectSeq   Int      @default(0)
+  defaultOwnerId String? @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members  ProjectMember[]
+  modules  Module[]
+  versions Version[]
+  defects  Defect[]
+}
+
+model ProjectMember {
+  projectId String      @db.Uuid
+  userId    String      @db.Uuid
+  role      ProjectRole
+  createdAt DateTime    @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, userId])
+  @@index([userId])
+}
+
+model Module {
+  id        String   @id @default(uuid()) @db.Uuid
+  projectId String   @db.Uuid
+  name      String
+  parentId  String?  @db.Uuid
+  ownerId   String?  @db.Uuid
+  createdAt DateTime @default(now())
+
+  project Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent  Module?  @relation("ModuleTree", fields: [parentId], references: [id])
+  children Module[] @relation("ModuleTree")
+
+  @@unique([projectId, name, parentId])
+}
+
+model Version {
+  id         String    @id @default(uuid()) @db.Uuid
+  projectId  String    @db.Uuid
+  name       String
+  build      String?
+  commit     String?
+  releasedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, name])
+}
+
+model Defect {
+  id             String    @id @default(uuid()) @db.Uuid
+  projectId      String    @db.Uuid
+  seq            Int
+  code           String
+  title          String
+  description    String    @default("")
+  steps          String    @default("")
+  expected       String    @default("")
+  actual         String    @default("")
+  status         String
+  /// 状态类别（todo/doing/verifying/done），冗余存储便于统计与筛选
+  statusCategory String
+  severity       String
+  priority       String?
+  frequency      String?
+  bugType        String?
+  resolution     String?
+  rootCause      String?
+  moduleId       String?   @db.Uuid
+  ownerIds       String[]  @db.Uuid
+  ccIds          String[]  @db.Uuid
+  reporterId     String?   @db.Uuid
+  developerId    String?   @db.Uuid
+  verifierId     String?   @db.Uuid
+  source         String
+  versionFoundId String?   @db.Uuid
+  versionFixedId String?   @db.Uuid
+  appCommit      String?
+  deviceInfo     Json?
+  logSummary     String?
+  fingerprint    String?
+  dupCount       Int       @default(0)
+  reopenCount    Int       @default(0)
+  dueAt          DateTime?
+  customFields   Json      @default("{}")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  confirmedAt    DateTime?
+  startedAt      DateTime?
+  resolvedAt     DateTime?
+  closedAt       DateTime?
+  deletedAt      DateTime?
+
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  attachments Attachment[]
+  comments    Comment[]
+  history     DefectHistory[]
+  links       DefectLink[]
+
+  @@unique([projectId, seq])
+  @@unique([projectId, code])
+  @@index([projectId, statusCategory])
+  @@index([projectId, fingerprint])
+  @@index([ownerIds], type: Gin)
+}
+
+model Attachment {
+  id          String   @id @default(uuid()) @db.Uuid
+  defectId    String   @db.Uuid
+  kind        String
+  fileName    String
+  storageKey  String
+  size        Int
+  contentType String?
+  sha256      String?
+  /// 视频中“问题出现”的时间点（毫秒）
+  markedAtMs  Int?
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now())
+
+  defect Defect @relation(fields: [defectId], references: [id], onDelete: Cascade)
+  frames VideoFrame[]
+
+  @@index([defectId])
+}
+
+/// 视频关键帧（方案 7.3）：Claude 不能直接看视频，后台抽帧后按图片提供
+model VideoFrame {
+  id           String  @id @default(uuid()) @db.Uuid
+  attachmentId String  @db.Uuid
+  tsMs         Int
+  storageKey   String
+  /// 是否在测试标记的“问题时间点”前后 5 秒内
+  nearMark     Boolean @default(false)
+
+  attachment Attachment @relation(fields: [attachmentId], references: [id], onDelete: Cascade)
+
+  @@unique([attachmentId, tsMs])
+}
+
+model Comment {
+  id        String   @id @default(uuid()) @db.Uuid
+  defectId  String   @db.Uuid
+  authorId  String?  @db.Uuid
+  /// web：网页；claude：经 MCP 由 Claude 写入；system：系统生成
+  via       String   @default("web")
+  body      String
+  createdAt DateTime @default(now())
+
+  defect Defect @relation(fields: [defectId], references: [id], onDelete: Cascade)
+
+  @@index([defectId, createdAt])
+}
+
+model DefectHistory {
+  id         String   @id @default(uuid()) @db.Uuid
+  defectId   String   @db.Uuid
+  field      String
+  oldValue   Json?
+  newValue   Json?
+  operatorId String?  @db.Uuid
+  via        String   @default("web")
+  createdAt  DateTime @default(now())
+
+  defect Defect @relation(fields: [defectId], references: [id], onDelete: Cascade)
+
+  @@index([defectId, createdAt])
+}
+
+model DefectLink {
+  id        String   @id @default(uuid()) @db.Uuid
+  defectId  String   @db.Uuid
+  /// branch / commit / mr / duplicate
+  kind      String
+  target    String
+  state     String?
+  createdAt DateTime @default(now())
+
+  defect Defect @relation(fields: [defectId], references: [id], onDelete: Cascade)
+
+  @@unique([defectId, kind, target])
+}
+
+/// APP 反馈原始记录，reportId 为幂等键（方案 5.2）
+model FeedbackReport {
+  reportId    String    @id @db.Uuid
+  appId       String
+  storagePrefix String
+  manifest    Json?
+  /// pending / created / merged / failed / archived
+  status      String    @default("pending")
+  error       String?
+  defectId    String?   @db.Uuid
+  receivedAt  DateTime  @default(now())
+  processedAt DateTime?
+
+  @@index([status])
+}
+
+/// 通用后台任务队列（建单、对账、抽帧），用 SELECT ... FOR UPDATE SKIP LOCKED 取任务
+model Job {
+  id        String    @id @default(uuid()) @db.Uuid
+  type      String
+  payload   Json
+  /// queued / running / done / failed
+  status    String    @default("queued")
+  attempts  Int       @default(0)
+  maxAttempts Int     @default(5)
+  runAt     DateTime  @default(now())
+  lockedAt  DateTime?
+  lastError String?
+  dedupeKey String?   @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([status, runAt])
+}
+
+model McpAudit {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  tool      String
+  defectId  String?  @db.Uuid
+  createdAt DateTime @default(now())
+
+  @@index([defectId])
+}

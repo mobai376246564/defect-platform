@@ -1,0 +1,136 @@
+import { createReadStream, createWriteStream } from 'node:fs';
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { pipeline } from 'node:stream/promises';
+import type { Readable } from 'node:stream';
+import { hmacSha256Hex, safeEqual } from '../common/crypto';
+import {
+  assertSafeKey,
+  safeFileName,
+  type ObjectStorage,
+  type StoredObject,
+  type UploadTarget,
+} from './storage.types';
+
+/**
+ * 本地磁盘存储，仅用于开发与测试。下载 / 上传地址用 HMAC 签名并限时，
+ * 行为上模拟 COS 的预签名 URL。
+ */
+export class LocalStorage implements ObjectStorage {
+  readonly driver = 'local' as const;
+  private readonly root: string;
+
+  constructor(
+    rootDir: string,
+    private readonly secret: string,
+    private readonly publicBaseUrl: string,
+  ) {
+    this.root = path.resolve(rootDir);
+  }
+
+  private fullPath(key: string): string {
+    const p = path.resolve(this.root, assertSafeKey(key));
+    if (!p.startsWith(this.root + path.sep)) throw new Error(`非法的对象 key：${key}`);
+    return p;
+  }
+
+  async getObject(key: string): Promise<Buffer> {
+    return readFile(this.fullPath(key));
+  }
+
+  createReadStream(key: string): Readable {
+    return createReadStream(this.fullPath(key));
+  }
+
+  async headObject(key: string): Promise<StoredObject | null> {
+    try {
+      const s = await stat(this.fullPath(key));
+      return s.isFile() ? { size: s.size } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async putObject(key: string, body: Buffer): Promise<void> {
+    const p = this.fullPath(key);
+    await mkdir(path.dirname(p), { recursive: true });
+    await writeFile(p, body);
+  }
+
+  async writeStream(key: string, stream: Readable, maxBytes: number): Promise<number> {
+    const p = this.fullPath(key);
+    await mkdir(path.dirname(p), { recursive: true });
+    let total = 0;
+    stream.on('data', (chunk: Buffer) => {
+      total += chunk.length;
+      if (total > maxBytes) stream.destroy(new Error('文件超过大小限制'));
+    });
+    await pipeline(stream, createWriteStream(p));
+    return total;
+  }
+
+  async listKeys(
+    prefix: string,
+    opts: { suffix?: string; limit?: number } = {},
+  ): Promise<string[]> {
+    const safe = assertSafeKey(prefix);
+    const out: string[] = [];
+    const walk = async (dir: string): Promise<void> => {
+      let entries;
+      try {
+        entries = await readdir(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const e of entries) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) await walk(full);
+        else {
+          const key = path.relative(this.root, full).split(path.sep).join('/');
+          if (key.startsWith(safe) && (!opts.suffix || key.endsWith(opts.suffix))) out.push(key);
+        }
+        if (opts.limit && out.length >= opts.limit) return;
+      }
+    };
+    // 从前缀所在的最深目录开始遍历
+    const dirPart = safe.includes('/') ? safe.slice(0, safe.lastIndexOf('/')) : '';
+    await walk(path.join(this.root, dirPart));
+    return out.sort();
+  }
+
+  async presignGet(key: string, expiresSec = 600): Promise<string> {
+    return this.signedUrl('get', key, expiresSec);
+  }
+
+  async createUploadTarget(
+    prefix: string,
+    fileNames: string[],
+    expiresSec = 1800,
+  ): Promise<UploadTarget> {
+    const expiresAt = Math.floor(Date.now() / 1000) + expiresSec;
+    return {
+      driver: 'local',
+      prefix,
+      expiresAt,
+      uploads: fileNames.map((name) => {
+        const key = `${prefix}${safeFileName(name)}`;
+        return { name, key, url: this.signedUrl('put', key, expiresSec) };
+      }),
+    };
+  }
+
+  /** 校验签名链接，供 LocalStorageController 使用。 */
+  verify(op: 'get' | 'put', key: string, exp: string, sig: string): boolean {
+    const expNum = Number(exp);
+    if (!Number.isFinite(expNum) || expNum < Date.now() / 1000) return false;
+    return safeEqual(sig, hmacSha256Hex(this.secret, `${op}:${key}:${exp}`));
+  }
+
+  private signedUrl(op: 'get' | 'put', key: string, expiresSec: number): string {
+    const safe = assertSafeKey(key);
+    const exp = String(Math.floor(Date.now() / 1000) + expiresSec);
+    const sig = hmacSha256Hex(this.secret, `${op}:${safe}:${exp}`);
+    const encoded = safe.split('/').map(encodeURIComponent).join('/');
+    return `${this.publicBaseUrl}/api/v1/storage/local/${encoded}?op=${op}&exp=${exp}&sig=${sig}`;
+  }
+}

@@ -1,0 +1,39 @@
+/**
+ * e2e 测试全局准备：启动一个独立的嵌入式 PostgreSQL（端口 5434，数据在 .data/pg-test，每次重建），
+ * 执行全部迁移，并把连接串写入环境变量供测试进程使用。
+ */
+import { execSync } from 'node:child_process';
+import { rmSync } from 'node:fs';
+import path from 'node:path';
+import EmbeddedPostgres from 'embedded-postgres';
+
+const port = 5434;
+const dataDir = path.resolve(__dirname, '../../../.data/pg-test');
+const url = `postgresql://test:test@localhost:${port}/defect_test`;
+
+export default async function setup(): Promise<() => Promise<void>> {
+  rmSync(dataDir, { recursive: true, force: true });
+  const pg = new EmbeddedPostgres({
+    databaseDir: dataDir,
+    port,
+    user: 'test',
+    password: 'test',
+    persistent: false,
+    initdbFlags: ['--encoding=UTF8', '--locale=C'],
+    onLog: () => undefined,
+  });
+  await pg.initialise();
+  await pg.start();
+  await pg.createDatabase('defect_test');
+
+  execSync('npx prisma migrate deploy', {
+    cwd: path.resolve(__dirname, '..'),
+    env: { ...process.env, DATABASE_URL: url },
+    stdio: 'pipe',
+  });
+  process.env.DATABASE_URL = url;
+
+  return async () => {
+    await pg.stop();
+  };
+}
