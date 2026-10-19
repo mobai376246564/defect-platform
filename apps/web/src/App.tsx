@@ -9,7 +9,10 @@ import { ProjectsPage } from './pages/ProjectsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { DefectCreatePage } from './pages/defects/DefectCreatePage';
 import { DefectDetailPage } from './pages/defects/DefectDetailPage';
+import { DefectBoardPage } from './pages/defects/DefectBoardPage';
 import { DefectListPage } from './pages/defects/DefectListPage';
+import { NotificationsPage } from './pages/notifications/NotificationsPage';
+import { ReportsPage } from './pages/reports/ReportsPage';
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -33,10 +36,13 @@ export function AppRoutes() {
       >
         <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/me" element={<MePage />} />
+        <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/p/:key" element={<Navigate to="bugs" replace />} />
         <Route path="/p/:key/bugs" element={<DefectListPage />} />
         <Route path="/p/:key/bugs/new" element={<DefectCreatePage />} />
+        <Route path="/p/:key/bugs/board" element={<DefectBoardPage />} />
         <Route path="/p/:key/bugs/:code" element={<DefectDetailPage />} />
+        <Route path="/p/:key/reports" element={<ReportsPage />} />
         <Route path="/p/:key/settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/projects" replace />} />

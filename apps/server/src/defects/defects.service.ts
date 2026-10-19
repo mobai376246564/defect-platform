@@ -16,6 +16,7 @@ import {
 } from '@defect/shared';
 import type { AuthUser } from '../common/auth-user';
 import { Prisma, type Defect } from '../generated/prisma/client';
+import { NotificationsService, type NotifyInput } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { ProjectContext } from '../projects/project-access.service';
 import type {
@@ -36,6 +37,7 @@ export function userActor(ctx: ProjectContext, user: AuthUser): Actor {
 }
 
 const actorId = (a: Actor): string | null => (a.kind === 'user' ? a.user.id : null);
+const actorName = (a: Actor): string => (a.kind === 'user' ? a.user.name : '系统');
 
 /** APP 反馈等系统建单时携带的额外字段 */
 export interface SystemDefectExtras {
@@ -69,7 +71,10 @@ const TRACKED_FIELDS = [
 
 @Injectable()
 export class DefectsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   async create(
     ctx: ProjectContext,
@@ -91,7 +96,7 @@ export class DefectsService {
       ? input.ownerIds
       : await this.defaultOwners(project.id, input.moduleId, project.defaultOwnerId);
 
-    return this.prisma.$transaction(async (tx) => {
+    const created = await this.prisma.$transaction(async (tx) => {
       const { defectSeq } = await tx.project.update({
         where: { id: project.id },
         data: { defectSeq: { increment: 1 } },
@@ -140,6 +145,8 @@ export class DefectsService {
       });
       return defect;
     });
+    await this.notifyChange(ctx, actor, null, created);
+    return created;
   }
 
   async list(ctx: ProjectContext, user: AuthUser, q: ListQuery) {
@@ -243,7 +250,9 @@ export class DefectsService {
         patch.dueAt === undefined ? undefined : patch.dueAt === null ? null : new Date(patch.dueAt),
       customFields: patch.customFields as Prisma.InputJsonValue | undefined,
     };
-    return this.applyChanges(defect, data, actorId(actor), via);
+    const updated = await this.applyChanges(defect, data, actorId(actor), via);
+    await this.notifyChange(ctx, actor, defect, updated);
+    return updated;
   }
 
   async transition(
@@ -313,6 +322,7 @@ export class DefectsService {
         },
       });
     }
+    await this.notifyChange(ctx, actor, defect, updated, { comment: input.comment });
     return updated;
   }
 
@@ -321,9 +331,11 @@ export class DefectsService {
       throw new ForbiddenException('没有权限评论');
     }
     const defect = await this.findByCode(ctx.project.id, code);
-    return this.prisma.comment.create({
+    const comment = await this.prisma.comment.create({
       data: { defectId: defect.id, authorId: actorId(actor), via, body },
     });
+    await this.notifyChange(ctx, actor, defect, defect, { comment: body });
+    return comment;
   }
 
   async addLink(ctx: ProjectContext, actor: Actor, code: string, link: LinkInput, via: Via) {
@@ -359,6 +371,55 @@ export class DefectsService {
       oldValue: null,
       newValue: true,
     });
+  }
+
+  /**
+   * 站内通知（方案 6.4）：新增的处理人收到“指派给我”，评论或流转说明里 @ 到的成员收到“@ 我”，
+   * 状态变化时通知创建人、验证人、前后处理人与抄送人。同一人一次操作只收一条，按上述顺序优先。
+   */
+  private async notifyChange(
+    ctx: ProjectContext,
+    actor: Actor,
+    before: Defect | null,
+    after: Defect,
+    opts: { comment?: string } = {},
+  ): Promise<void> {
+    const name = actorName(actor);
+    const inputs: NotifyInput[] = [];
+    const previousOwners = new Set(before?.ownerIds ?? []);
+    const assigned = after.ownerIds.filter((id) => !previousOwners.has(id));
+    if (assigned.length) {
+      inputs.push({
+        kind: 'assigned',
+        userIds: assigned,
+        title: `${name} 把 ${after.code} 指派给了你`,
+      });
+    }
+    const comment = opts.comment?.trim();
+    if (comment) {
+      inputs.push({
+        kind: 'mentioned',
+        userIds: await this.notifications.mentionedMembers(after.projectId, comment),
+        title: `${name} 在 ${after.code} 中提到了你`,
+        body: comment.length > 200 ? `${comment.slice(0, 200)}…` : comment,
+      });
+    }
+    if (before && before.status !== after.status) {
+      const from = findState(ctx.workflow, before.status)?.name ?? before.status;
+      const to = findState(ctx.workflow, after.status)?.name ?? after.status;
+      inputs.push({
+        kind: 'status_changed',
+        userIds: [
+          after.reporterId,
+          after.verifierId,
+          ...before.ownerIds,
+          ...after.ownerIds,
+          ...after.ccIds,
+        ],
+        title: `${name} 把 ${after.code} 从“${from}”改为“${to}”`,
+      });
+    }
+    if (inputs.length) await this.notifications.send(after, actorId(actor), inputs);
   }
 
   /** 写入变更并逐字段记录历史（方案 6.2 defect_history）。 */

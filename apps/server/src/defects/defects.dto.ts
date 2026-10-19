@@ -113,6 +113,7 @@ export const listQuerySchema = z.object({
   sort: z.enum(['createdAt', 'updatedAt', 'dueAt', 'seq']).default('createdAt'),
   order: z.enum(['asc', 'desc']).default('desc'),
   page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  /** 看板一次最多取 200 条（与批量操作上限一致） */
+  pageSize: z.coerce.number().int().min(1).max(200).default(20),
 });
 export type ListQuery = z.infer<typeof listQuerySchema>;

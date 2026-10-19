@@ -14,6 +14,10 @@ export interface TransitionSubmit {
   values: Record<string, unknown>;
 }
 
+/** 弹窗用到的缺陷字段：详情页传完整缺陷，看板传列表行（没有解决方法等字段）。 */
+export type TransitionDefect = Pick<DefectDetail, 'code' | 'priority' | 'moduleId'> &
+  Partial<Pick<DefectDetail, 'resolution' | 'rootCause'>>;
+
 /** 流转时补填工作流要求的字段与说明（方案 6.7 流转必填）。 */
 export function TransitionModal({
   transition,
@@ -24,7 +28,7 @@ export function TransitionModal({
   onSubmit,
 }: {
   transition: WorkflowTransition | null;
-  defect: DefectDetail;
+  defect: TransitionDefect;
   project: ProjectDetail;
   loading: boolean;
   onCancel: () => void;

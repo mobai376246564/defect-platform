@@ -296,3 +296,37 @@ model McpAudit {
 
   @@index([defectId])
 }
+
+/// 站内通知（方案 6.4 通知中心）：指派、@ 提及、状态变更
+model Notification {
+  id         String    @id @default(uuid()) @db.Uuid
+  /// 接收人
+  userId     String    @db.Uuid
+  projectId  String    @db.Uuid
+  defectId   String?   @db.Uuid
+  /// 冗余缺陷编号，列表展示与跳转无需再查缺陷表
+  defectCode String?
+  /// assigned / mentioned / status_changed
+  kind       String
+  title      String
+  body       String    @default("")
+  /// 触发人；系统触发（APP 反馈建单、Webhook）为空
+  actorId    String?   @db.Uuid
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+}
+
+/// 每日缺陷快照（方案 6.9）：每天凌晨写入前一天结束时各状态类别 × 严重程度的缺陷数，趋势报表的存量来源
+model DefectDailySnapshot {
+  projectId      String   @db.Uuid
+  date           DateTime @db.Date
+  statusCategory String
+  severity       String
+  count          Int
+  createdAt      DateTime @default(now())
+
+  @@id([projectId, date, statusCategory, severity])
+}

@@ -17,6 +17,7 @@ import {
   Col,
   Descriptions,
   Input,
+  Mentions,
   Result,
   Row,
   Select,
@@ -251,11 +252,12 @@ function DefectView({ project, defect }: { project: ProjectDetail; defect: Defec
                           </Typography.Paragraph>
                         </div>
                       ))}
-                      <Input.TextArea
+                      <Mentions
                         rows={3}
                         value={comment}
-                        onChange={(e) => setComment(e.target.value)}
-                        placeholder="写评论"
+                        onChange={setComment}
+                        placeholder="写评论，输入 @ 提及成员（对方会收到通知）"
+                        options={project.members.map((m) => ({ value: m.name, label: m.name }))}
                       />
                       <Button
                         type="primary"

@@ -9,8 +9,10 @@ import { IngestModule } from './ingest/ingest.module';
 import { JobsModule } from './jobs/jobs.module';
 import { McpModule } from './mcp/mcp.module';
 import { MediaModule } from './media/media.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProjectsModule } from './projects/projects.module';
+import { ReportsModule } from './reports/reports.module';
 import { StorageModule } from './storage/storage.module';
 import { UsersController } from './users/users.controller';
 
@@ -28,6 +30,8 @@ import { UsersController } from './users/users.controller';
     MediaModule,
     McpModule,
     GitWebhooksModule,
+    NotificationsModule,
+    ReportsModule,
   ],
   controllers: [HealthController, UsersController],
 })

@@ -161,3 +161,145 @@ export interface ApiTokenItem {
   lastUsedAt: string | null;
   createdAt: string;
 }
+
+export interface NotificationItem {
+  id: string;
+  kind: 'assigned' | 'mentioned' | 'status_changed';
+  title: string;
+  body: string;
+  projectId: string;
+  projectKey: string | null;
+  projectName: string | null;
+  defectCode: string | null;
+  actorName: string | null;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export interface NotificationPage extends Page<NotificationItem> {
+  unread: number;
+}
+
+/** 统计报表（方案 6.9），字段口径见服务端 ReportsService */
+export interface CountItem {
+  key: string;
+  count: number;
+}
+
+export interface TrendReport {
+  from: string;
+  to: string;
+  granularity: 'day' | 'week';
+  snapshotDays: number;
+  points: { date: string; created: number; resolved: number; closed: number; open: number }[];
+}
+
+export interface DistributionReport {
+  scope: 'open' | 'created';
+  total: number;
+  status: CountItem[];
+  severity: CountItem[];
+  module: CountItem[];
+  owner: CountItem[];
+  bugType: CountItem[];
+  rootCause: CountItem[];
+}
+
+export interface AgeReport {
+  total: number;
+  rows: { bucket: string; label: string; total: number; bySeverity: Record<string, number> }[];
+  oldest: {
+    code: string;
+    title: string;
+    status: string;
+    severity: string;
+    ownerIds: string[];
+    createdAt: string;
+    ageDays: number;
+  }[];
+}
+
+export interface VersionReport {
+  rows: {
+    versionId: string | null;
+    name: string;
+    releasedAt: string | null;
+    total: number;
+    open: number;
+    openAtRelease: number | null;
+    bySeverity: Record<string, number>;
+  }[];
+}
+
+export interface EfficiencyRow {
+  key: string;
+  responseCount: number;
+  avgResponseHours: number | null;
+  resolveCount: number;
+  avgResolveHours: number | null;
+  slaMet: number;
+  slaTotal: number;
+  slaRate: number | null;
+  inHand: number;
+}
+
+export interface EfficiencyReport {
+  byPerson: { rows: EfficiencyRow[]; total: EfficiencyRow };
+  byModule: { rows: EfficiencyRow[]; total: EfficiencyRow };
+}
+
+export interface QualityStats {
+  resolved: number;
+  reopened: number;
+  reopenRate: number | null;
+  firstPassRate: number | null;
+}
+
+export interface QualityReport {
+  granularity: 'day' | 'week';
+  summary: QualityStats;
+  points: (QualityStats & { date: string })[];
+}
+
+export interface FeedbackStats {
+  total: number;
+  created: number;
+  merged: number;
+  archived: number;
+  failed: number;
+  pending: number;
+}
+
+export interface FeedbackReportData {
+  granularity: 'day' | 'week';
+  summary: FeedbackStats & { createRate: number | null };
+  points: (FeedbackStats & { date: string })[];
+  top: {
+    code: string;
+    title: string;
+    status: string;
+    severity: string;
+    dupCount: number;
+    feedbackCount: number;
+    createdAt: string;
+  }[];
+}
+
+export interface ClaudeGroup {
+  count: number;
+  avgResolveHours: number | null;
+  reopenRate: number | null;
+}
+
+export interface ClaudeReport {
+  granularity: 'day' | 'week';
+  summary: {
+    resolved: number;
+    withClaude: number;
+    ratio: number | null;
+    mcpCalls: number;
+    claudeComments: number;
+  };
+  compare: { withClaude: ClaudeGroup; withoutClaude: ClaudeGroup };
+  points: { date: string; resolved: number; withClaude: number; ratio: number | null }[];
+}

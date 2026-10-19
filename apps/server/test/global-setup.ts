@@ -11,14 +11,19 @@ const port = 5434;
 const dataDir = path.resolve(__dirname, '../../../.data/pg-test');
 const url = `postgresql://test:test@localhost:${port}/defect_test`;
 
+// Windows 上 postgres 进程退出后目录句柄会晚一点释放，立即删除会 EBUSY，所以带重试
+const removeDataDir = () =>
+  rmSync(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+
 export default async function setup(): Promise<() => Promise<void>> {
-  rmSync(dataDir, { recursive: true, force: true });
+  removeDataDir();
   const pg = new EmbeddedPostgres({
     databaseDir: dataDir,
     port,
     user: 'test',
     password: 'test',
-    persistent: false,
+    // 不让 embedded-postgres 在 stop 时自己删目录（它不重试），由下面的 teardown 删除
+    persistent: true,
     initdbFlags: ['--encoding=UTF8', '--locale=C'],
     onLog: () => undefined,
   });
@@ -35,5 +40,6 @@ export default async function setup(): Promise<() => Promise<void>> {
 
   return async () => {
     await pg.stop();
+    removeDataDir();
   };
 }

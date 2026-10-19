@@ -1,8 +1,28 @@
-import { BugOutlined, PlusOutlined, SettingOutlined, UserOutlined } from '@ant-design/icons';
-import { Avatar, Dropdown, Layout, Menu, Select, Space, Typography } from 'antd';
+import {
+  BarChartOutlined,
+  BellOutlined,
+  BugOutlined,
+  PlusOutlined,
+  ProjectOutlined,
+  SettingOutlined,
+  UserOutlined,
+} from '@ant-design/icons';
+import {
+  Avatar,
+  Badge,
+  Button,
+  Dropdown,
+  Layout,
+  Menu,
+  Select,
+  Space,
+  Tooltip,
+  Typography,
+} from 'antd';
 import { Link, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { useProjects } from '../api/hooks';
+import { useProjects, useUnreadCount } from '../api/hooks';
 import { useAuth } from '../auth/AuthContext';
+import { menuSection } from './section';
 
 const { Header, Sider, Content } = Layout;
 
@@ -12,12 +32,9 @@ export function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const projects = useProjects();
+  const unread = useUnreadCount();
 
-  const section = location.pathname.includes('/settings')
-    ? 'settings'
-    : location.pathname.endsWith('/new')
-      ? 'new'
-      : 'bugs';
+  const section = menuSection(location.pathname);
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -49,6 +66,16 @@ export function AppLayout() {
           />
         )}
         <div style={{ flex: 1 }} />
+        <Tooltip title="通知中心">
+          <Badge count={unread.data?.count ?? 0} size="small" offset={[-4, 4]}>
+            <Button
+              type="text"
+              aria-label="通知中心"
+              icon={<BellOutlined style={{ color: '#fff', fontSize: 18 }} />}
+              onClick={() => navigate('/notifications')}
+            />
+          </Badge>
+        </Tooltip>
         <Dropdown
           menu={{
             items: [
@@ -78,9 +105,19 @@ export function AppLayout() {
                   label: <Link to={`/p/${key}/bugs`}>缺陷列表</Link>,
                 },
                 {
+                  key: 'board',
+                  icon: <ProjectOutlined />,
+                  label: <Link to={`/p/${key}/bugs/board`}>缺陷看板</Link>,
+                },
+                {
                   key: 'new',
                   icon: <PlusOutlined />,
                   label: <Link to={`/p/${key}/bugs/new`}>新建缺陷</Link>,
+                },
+                {
+                  key: 'reports',
+                  icon: <BarChartOutlined />,
+                  label: <Link to={`/p/${key}/reports`}>统计报表</Link>,
                 },
                 {
                   key: 'settings',

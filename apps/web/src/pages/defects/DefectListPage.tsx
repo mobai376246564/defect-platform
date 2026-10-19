@@ -1,4 +1,4 @@
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { PlusOutlined, ProjectOutlined, ReloadOutlined } from '@ant-design/icons';
 import { PRIORITY_OPTIONS, SEVERITY_OPTIONS } from '@defect/shared';
 import { Button, Input, Result, Segmented, Select, Space, Table, Tooltip, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -125,6 +125,9 @@ export function DefectListPage() {
           onClick={() => void defects.refetch()}
           aria-label="刷新"
         />
+        <Button icon={<ProjectOutlined />} onClick={() => navigate(`/p/${key}/bugs/board`)}>
+          看板
+        </Button>
         <Button
           type="primary"
           icon={<PlusOutlined />}
