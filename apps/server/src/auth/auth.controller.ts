@@ -1,12 +1,26 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  ForbiddenException,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+} from '@nestjs/common';
 import { z } from 'zod';
 import { CurrentUser, Public, type AuthUser } from '../common/auth-user';
 import { ZodPipe } from '../common/zod.pipe';
-import { AuthService } from './auth.service';
+import { AuthService, passwordSchema } from './auth.service';
 
 const loginSchema = z.object({
   email: z.email(),
   password: z.string().min(1),
+});
+
+const changePasswordSchema = z.object({
+  oldPassword: z.string().min(1),
+  newPassword: passwordSchema,
 });
 
 const createTokenSchema = z.object({
@@ -29,6 +43,17 @@ export class AuthController {
   @Get('me')
   me(@CurrentUser() user: AuthUser) {
     return user;
+  }
+
+  /** 修改自己的密码。只允许登录会话调用，个人 API Token（MCP / 脚本）不能改密码。 */
+  @Post('password')
+  @HttpCode(204)
+  async changePassword(
+    @CurrentUser() user: AuthUser,
+    @Body(new ZodPipe(changePasswordSchema)) body: z.infer<typeof changePasswordSchema>,
+  ): Promise<void> {
+    if (user.via !== 'jwt') throw new ForbiddenException('请登录后在个人设置中修改密码');
+    await this.auth.changePassword(user.id, body.oldPassword, body.newPassword);
   }
 
   /** 个人 API Token：供本地 Claude Code 通过 MCP 访问平台。明文只在创建时返回一次。 */

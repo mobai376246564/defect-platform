@@ -22,6 +22,12 @@ import { qk } from '../api/hooks';
 import type { ApiTokenItem } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 
+interface PasswordValues {
+  oldPassword: string;
+  newPassword: string;
+  confirm: string;
+}
+
 const mcpUrl = () => `${window.location.origin}/api/v1/mcp`;
 
 export function MePage() {
@@ -34,6 +40,7 @@ export function MePage() {
   });
   const [creating, setCreating] = useState(false);
   const [newToken, setNewToken] = useState<string | null>(null);
+  const [pwdForm] = Form.useForm<PasswordValues>();
 
   const create = useMutation({
     mutationFn: (v: { name: string; readOnly?: boolean }) =>
@@ -45,6 +52,18 @@ export function MePage() {
       setCreating(false);
       setNewToken(res.token);
       void qc.invalidateQueries({ queryKey: qk.tokens });
+    },
+    onError: (e: Error) => message.error(e.message),
+  });
+  const changePassword = useMutation({
+    mutationFn: (v: PasswordValues) =>
+      api('/auth/password', {
+        method: 'POST',
+        body: { oldPassword: v.oldPassword, newPassword: v.newPassword },
+      }),
+    onSuccess: () => {
+      pwdForm.resetFields();
+      message.success('密码已修改，下次登录请使用新密码');
     },
     onError: (e: Error) => message.error(e.message),
   });
@@ -71,6 +90,53 @@ export function MePage() {
         <Typography.Text>
           {user?.name}（{user?.email}）{user?.isSystemAdmin && <Tag color="gold">系统管理员</Tag>}
         </Typography.Text>
+      </Card>
+
+      <Card title="修改密码" style={{ marginBottom: 16 }}>
+        <Form<PasswordValues>
+          form={pwdForm}
+          layout="vertical"
+          style={{ maxWidth: 360 }}
+          onFinish={(v) => changePassword.mutate(v)}
+        >
+          <Form.Item
+            name="oldPassword"
+            label="当前密码"
+            rules={[{ required: true, message: '请输入当前密码' }]}
+          >
+            <Input.Password autoComplete="current-password" />
+          </Form.Item>
+          <Form.Item
+            name="newPassword"
+            label="新密码"
+            rules={[
+              { required: true, message: '请输入新密码' },
+              { min: 8, message: '密码至少 8 位' },
+              { max: 72, message: '密码最多 72 位' },
+            ]}
+          >
+            <Input.Password autoComplete="new-password" />
+          </Form.Item>
+          <Form.Item
+            name="confirm"
+            label="确认新密码"
+            dependencies={['newPassword']}
+            rules={[
+              { required: true, message: '请再次输入新密码' },
+              ({ getFieldValue }) => ({
+                validator: (_, value) =>
+                  !value || value === getFieldValue('newPassword')
+                    ? Promise.resolve()
+                    : Promise.reject(new Error('两次输入的新密码不一致')),
+              }),
+            ]}
+          >
+            <Input.Password autoComplete="new-password" />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" loading={changePassword.isPending}>
+            修改密码
+          </Button>
+        </Form>
       </Card>
 
       <Card title="在 Claude Code 中接入缺陷平台" style={{ marginBottom: 16 }}>

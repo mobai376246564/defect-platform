@@ -152,6 +152,15 @@ export interface UploadTarget {
   uploads?: { name: string; key: string; url: string }[];
 }
 
+export interface AdminUser {
+  id: string;
+  email: string;
+  name: string;
+  isSystemAdmin: boolean;
+  disabledAt: string | null;
+  createdAt: string;
+}
+
 export interface ApiTokenItem {
   id: string;
   name: string;

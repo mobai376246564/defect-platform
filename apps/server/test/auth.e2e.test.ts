@@ -51,6 +51,45 @@ describe('auth (e2e)', () => {
     await ctx.http.get('/api/v1/auth/me').set(auth(apiToken)).expect(401);
   });
 
+  it('changes your own password after checking the old one', async () => {
+    const u = await createUser(ctx);
+    await ctx.http
+      .post('/api/v1/auth/password')
+      .set(auth(u.token))
+      .send({ oldPassword: 'wrong-password', newPassword: 'newPass123' })
+      .expect(400);
+    await ctx.http
+      .post('/api/v1/auth/password')
+      .set(auth(u.token))
+      .send({ oldPassword: 'Passw0rd!', newPassword: 'short' })
+      .expect(400);
+
+    const created = await ctx.http
+      .post('/api/v1/auth/tokens')
+      .set(auth(u.token))
+      .send({ name: 'script' })
+      .expect(201);
+    await ctx.http
+      .post('/api/v1/auth/password')
+      .set(auth(created.body.token))
+      .send({ oldPassword: 'Passw0rd!', newPassword: 'newPass123' })
+      .expect(403);
+
+    await ctx.http
+      .post('/api/v1/auth/password')
+      .set(auth(u.token))
+      .send({ oldPassword: 'Passw0rd!', newPassword: 'newPass123' })
+      .expect(204);
+    await ctx.http
+      .post('/api/v1/auth/login')
+      .send({ email: u.email, password: 'Passw0rd!' })
+      .expect(401);
+    await ctx.http
+      .post('/api/v1/auth/login')
+      .send({ email: u.email, password: 'newPass123' })
+      .expect(200);
+  });
+
   it('blocks REST writes with a read-only token', async () => {
     const u = await createUser(ctx);
     const created = await ctx.http

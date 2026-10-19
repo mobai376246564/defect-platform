@@ -7,6 +7,7 @@ import { LoginPage } from './pages/LoginPage';
 import { MePage } from './pages/MePage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { UsersPage } from './pages/UsersPage';
 import { DefectCreatePage } from './pages/defects/DefectCreatePage';
 import { DefectDetailPage } from './pages/defects/DefectDetailPage';
 import { DefectBoardPage } from './pages/defects/DefectBoardPage';
@@ -36,6 +37,7 @@ export function AppRoutes() {
       >
         <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/me" element={<MePage />} />
+        <Route path="/admin/users" element={<UsersPage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/p/:key" element={<Navigate to="bugs" replace />} />
         <Route path="/p/:key/bugs" element={<DefectListPage />} />

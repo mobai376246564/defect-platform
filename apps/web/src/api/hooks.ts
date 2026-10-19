@@ -15,6 +15,7 @@ export const qk = {
   defects: (key: string, query: Record<string, unknown>) => ['defects', key, query] as const,
   defect: (key: string, code: string) => ['defect', key, code] as const,
   tokens: ['tokens'] as const,
+  adminUsers: ['admin-users'] as const,
   notifications: ['notifications'] as const,
   report: (key: string, name: string, query: Record<string, unknown>) =>
     ['report', key, name, query] as const,

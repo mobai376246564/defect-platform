@@ -5,6 +5,7 @@ import {
   PlusOutlined,
   ProjectOutlined,
   SettingOutlined,
+  TeamOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import {
@@ -66,6 +67,16 @@ export function AppLayout() {
           />
         )}
         <div style={{ flex: 1 }} />
+        {user?.isSystemAdmin && (
+          <Tooltip title="用户管理">
+            <Button
+              type="text"
+              aria-label="用户管理"
+              icon={<TeamOutlined style={{ color: '#fff', fontSize: 18 }} />}
+              onClick={() => navigate('/admin/users')}
+            />
+          </Tooltip>
+        )}
         <Tooltip title="通知中心">
           <Badge count={unread.data?.count ?? 0} size="small" offset={[-4, 4]}>
             <Button
@@ -80,6 +91,9 @@ export function AppLayout() {
           menu={{
             items: [
               { key: 'me', label: '个人设置与 Claude Code 接入', onClick: () => navigate('/me') },
+              ...(user?.isSystemAdmin
+                ? [{ key: 'users', label: '用户管理', onClick: () => navigate('/admin/users') }]
+                : []),
               { type: 'divider' },
               { key: 'logout', label: '退出登录', onClick: logout },
             ],

@@ -1,6 +1,12 @@
-import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import bcrypt from 'bcryptjs';
+import { z } from 'zod';
 import type { AuthUser } from '../common/auth-user';
 import { generateApiToken, sha256Hex } from '../common/crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -8,6 +14,9 @@ import { PrismaService } from '../prisma/prisma.service';
 interface JwtPayload {
   sub: string;
 }
+
+/** 新密码规则（bcrypt 只取前 72 字节，超出部分不参与校验）。 */
+export const passwordSchema = z.string().min(8, '密码至少 8 位').max(72, '密码最多 72 位');
 
 @Injectable()
 export class AuthService {
@@ -100,6 +109,19 @@ export class AuthService {
       data: { revokedAt: new Date() },
     });
     if (count === 0) throw new NotFoundException('Token 不存在');
+  }
+
+  /** 当前用户修改自己的密码，需校验旧密码。 */
+  async changePassword(userId: string, oldPassword: string, newPassword: string): Promise<void> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.passwordHash) throw new BadRequestException('该账号未设置本地密码');
+    if (!(await bcrypt.compare(oldPassword, user.passwordHash))) {
+      throw new BadRequestException('旧密码不正确');
+    }
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: await AuthService.hashPassword(newPassword) },
+    });
   }
 
   static hashPassword(password: string): Promise<string> {
