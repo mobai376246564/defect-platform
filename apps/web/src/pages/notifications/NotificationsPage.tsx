@@ -45,7 +45,7 @@ export function NotificationsPage() {
   };
 
   return (
-    <div style={{ maxWidth: 900 }}>
+    <div className="page-narrow">
       <div
         style={{
           display: 'flex',
@@ -86,7 +86,6 @@ export function NotificationsPage() {
         locale={{
           emptyText: list.isError ? list.error.message : unread ? '没有未读通知' : '暂无通知',
         }}
-        style={{ background: '#fff' }}
         pagination={
           (list.data?.total ?? 0) > pageSize
             ? {
@@ -101,7 +100,7 @@ export function NotificationsPage() {
         renderItem={(n) => (
           <List.Item
             onClick={() => open(n)}
-            style={{ cursor: 'pointer', background: n.readAt ? undefined : '#f0f7ff' }}
+            style={{ cursor: 'pointer', background: n.readAt ? undefined : 'var(--unread-bg)' }}
             actions={
               n.readAt
                 ? []

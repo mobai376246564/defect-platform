@@ -211,7 +211,7 @@ export function UsersPage() {
   };
 
   return (
-    <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+    <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
         <Typography.Title level={4} style={{ margin: 0, flex: 1 }}>
           用户管理

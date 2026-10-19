@@ -5,7 +5,7 @@ import {
   findState,
   type WorkflowDefinition,
 } from '@defect/shared';
-import { Tag } from 'antd';
+import { Tag, Typography } from 'antd';
 
 const SEVERITY_COLOR: Record<string, string> = {
   fatal: 'red',
@@ -30,7 +30,7 @@ export function SeverityTag({ value }: { value: string }) {
 }
 
 export function PriorityTag({ value }: { value: string | null }) {
-  if (!value) return <span style={{ color: '#bfbfbf' }}>—</span>;
+  if (!value) return <Typography.Text type="secondary">—</Typography.Text>;
   return (
     <Tag color={PRIORITY_COLOR[value]}>{PRIORITY[value as keyof typeof PRIORITY] ?? value}</Tag>
   );

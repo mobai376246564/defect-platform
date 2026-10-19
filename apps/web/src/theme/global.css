@@ -1,0 +1,123 @@
+/* 全站基础样式：颜色来自 antd 主题，这里只放布局与少量工程感细节 */
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+:root {
+  --mono:
+    'JetBrains Mono', 'SFMono-Regular', 'Cascadia Mono', Consolas, 'Liberation Mono', Menlo,
+    monospace;
+  --page-bg: #0d1117;
+  --grid-line: rgba(139, 152, 167, 0.07);
+  --code-bg: #0b0f15;
+  --lane-bg: #11171f;
+  --lane-hover: rgba(59, 130, 246, 0.12);
+  --unread-bg: rgba(59, 130, 246, 0.08);
+  --accent: #3b82f6;
+  --sider-border: #1c232d;
+}
+
+:root[data-theme='light'] {
+  --page-bg: #f3f5f8;
+  --grid-line: rgba(27, 36, 48, 0.05);
+  --code-bg: #f6f8fa;
+  --lane-bg: #eceff4;
+  --lane-hover: rgba(37, 99, 235, 0.1);
+  --unread-bg: rgba(37, 99, 235, 0.06);
+  --accent: #2563eb;
+  --sider-border: #e3e7ee;
+}
+
+body {
+  margin: 0;
+  background: var(--page-bg);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'tnum';
+}
+
+/* 编号、数字、提交号统一等宽，便于扫读与对齐 */
+.mono,
+.ant-statistic-content-value,
+.ant-typography code,
+.ant-badge-count {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 页面内容区：随窗口自适应，超宽屏才限制最大宽度 */
+.page {
+  width: 100%;
+  max-width: 1680px;
+  margin: 0 auto;
+}
+
+.page-narrow {
+  width: 100%;
+  max-width: 1080px;
+}
+
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  min-height: 32px;
+}
+
+.page-header h4.ant-typography {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+/* 登录、注册页的网格底纹 */
+.auth-bg {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background-color: var(--page-bg);
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* 表格里的编号列 */
+.defect-code {
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+@media (max-width: 768px) {
+  .page-header h4.ant-typography {
+    font-size: 17px;
+  }
+}
+
+/* 设置类页面的卡片栅格：宽屏两列，窄屏一列 */
+.card-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.card-grid > .ant-card {
+  margin: 0 !important;
+}
+
+@media (min-width: 1280px) {
+  .card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .card-grid > .span-2 {
+    grid-column: 1 / -1;
+  }
+}

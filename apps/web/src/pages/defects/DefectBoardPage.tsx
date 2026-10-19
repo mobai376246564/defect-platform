@@ -197,10 +197,10 @@ function Board({ project }: { project: ProjectDetail }) {
               onDrop={(e) => onDrop(e, col.key)}
               style={{
                 flex: '0 0 260px',
-                background: hover === col.key ? '#e6f4ff' : '#f5f5f5',
-                borderRadius: 8,
+                background: hover === col.key ? 'var(--lane-hover)' : 'var(--lane-bg)',
+                borderRadius: 6,
                 padding: 8,
-                border: `2px dashed ${dragging && target ? '#1677ff' : 'transparent'}`,
+                border: `1px dashed ${dragging && target ? 'var(--accent)' : 'transparent'}`,
                 opacity: dragging && !target && !isSource ? 0.45 : 1,
                 transition: 'opacity .15s, background .15s',
               }}

@@ -28,9 +28,9 @@ export const SEVERITY_COLORS: Record<Severity, string> = {
 const SEVERITIES = Object.keys(SEVERITY) as Severity[];
 
 const AXIS = {
-  axisLine: { lineStyle: { color: '#d9d9d9' } },
-  axisLabel: { color: '#595959' },
-  splitLine: { lineStyle: { color: '#f0f0f0' } },
+  axisLine: { lineStyle: { color: 'rgba(139, 152, 167, 0.45)' } },
+  axisLabel: { color: '#8b98a7' },
+  splitLine: { lineStyle: { color: 'rgba(139, 152, 167, 0.16)' } },
 };
 const GRID = { left: 8, right: 16, top: 40, bottom: 8, containLabel: true };
 const LEGEND = { top: 0, left: 0, itemWidth: 12, itemHeight: 8 };
@@ -166,7 +166,7 @@ export function barsOption(items: { name: string; count: number }[]): EChartsOpt
         data: sorted.map((i) => i.count),
         barMaxWidth: 18,
         itemStyle: { color: SERIES_COLORS[0], borderRadius: [0, 4, 4, 0] },
-        label: { show: true, position: 'right', color: '#595959' },
+        label: { show: true, position: 'right', color: '#8b98a7' },
       },
     ],
   };
@@ -181,7 +181,7 @@ const severityStack = (rowsBySeverity: Record<string, number>[], horizontal = fa
     barMaxWidth: 36,
     itemStyle: {
       color: SEVERITY_COLORS[s],
-      borderColor: '#fff',
+      borderColor: 'transparent',
       borderWidth: 1,
       // 只有最外层一段圆角
       borderRadius: i === SEVERITIES.length - 1 ? (horizontal ? [0, 4, 4, 0] : [4, 4, 0, 0]) : 0,
@@ -227,7 +227,7 @@ export function qualityOption(r: QualityReport): EChartsOption {
     yAxis: {
       type: 'value',
       max: 100,
-      axisLabel: { formatter: '{value}%', color: '#595959' },
+      axisLabel: { formatter: '{value}%', color: '#8b98a7' },
       splitLine: AXIS.splitLine,
     },
     series: [
@@ -283,7 +283,7 @@ export function feedbackOption(r: FeedbackReportData): EChartsOption {
       stack: 'feedback',
       data: r.points.map((p) => p[s.key]),
       barMaxWidth: 24,
-      itemStyle: { color: SERIES_COLORS[i], borderColor: '#fff', borderWidth: 1 },
+      itemStyle: { color: SERIES_COLORS[i], borderColor: 'transparent', borderWidth: 1 },
     })),
   };
 }
@@ -308,7 +308,7 @@ export function claudeOption(r: ClaudeReport): EChartsOption {
         stack: 'resolved',
         data: r.points.map((p) => p.withClaude),
         barMaxWidth: 24,
-        itemStyle: { color: SERIES_COLORS[0], borderColor: '#fff', borderWidth: 1 },
+        itemStyle: { color: SERIES_COLORS[0], borderColor: 'transparent', borderWidth: 1 },
       },
       {
         name: '未参与',
@@ -318,7 +318,7 @@ export function claudeOption(r: ClaudeReport): EChartsOption {
         barMaxWidth: 24,
         itemStyle: {
           color: '#bfbfbf',
-          borderColor: '#fff',
+          borderColor: 'transparent',
           borderWidth: 1,
           borderRadius: [4, 4, 0, 0],
         },

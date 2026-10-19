@@ -209,7 +209,8 @@ function DefectView({ project, defect }: { project: ProjectDetail; defect: Defec
                   maxHeight: 360,
                   overflow: 'auto',
                   fontSize: 12,
-                  background: '#fafafa',
+                  background: 'var(--code-bg)',
+                  fontFamily: 'var(--mono)',
                   padding: 12,
                   margin: 0,
                 }}

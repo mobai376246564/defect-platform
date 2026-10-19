@@ -9,6 +9,7 @@ import * as echarts from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
 import type { EChartsOption } from 'echarts';
 import { useEffect, useRef } from 'react';
+import { useThemeMode } from '../theme/theme';
 
 // 按需引入，只打包用到的图表与组件
 echarts.use([
@@ -21,15 +22,19 @@ echarts.use([
   CanvasRenderer,
 ]);
 
-/** ECharts 的 React 包装：随容器尺寸自适应，option 变化时整体替换。 */
+/** ECharts 的 React 包装：随容器尺寸自适应，option 变化时整体替换，跟随全站深浅色主题。 */
 export function EChart({ option, height = 300 }: { option: EChartsOption; height?: number }) {
   const ref = useRef<HTMLDivElement>(null);
   const chart = useRef<echarts.ECharts | null>(null);
+  const { mode } = useThemeMode();
+  const latest = useRef(option);
+  latest.current = option;
 
   useEffect(() => {
     if (!ref.current) return;
-    const instance = echarts.init(ref.current);
+    const instance = echarts.init(ref.current, mode === 'dark' ? 'dark' : undefined);
     chart.current = instance;
+    instance.setOption({ backgroundColor: 'transparent', ...latest.current }, { notMerge: true });
     const observer = new ResizeObserver(() => instance.resize());
     observer.observe(ref.current);
     return () => {
@@ -37,10 +42,10 @@ export function EChart({ option, height = 300 }: { option: EChartsOption; height
       instance.dispose();
       chart.current = null;
     };
-  }, []);
+  }, [mode]);
 
   useEffect(() => {
-    chart.current?.setOption(option, { notMerge: true });
+    chart.current?.setOption({ backgroundColor: 'transparent', ...option }, { notMerge: true });
   }, [option]);
 
   return <div ref={ref} style={{ width: '100%', height }} />;
