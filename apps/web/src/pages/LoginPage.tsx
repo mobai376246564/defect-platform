@@ -1,7 +1,7 @@
 import { BugOutlined } from '@ant-design/icons';
 import { Alert, Button, Card, Form, Input, Typography } from 'antd';
 import { useState } from 'react';
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 
 export function LoginPage() {
@@ -14,11 +14,11 @@ export function LoginPage() {
 
   if (user) return <Navigate to={from} replace />;
 
-  const onFinish = async (values: { email: string; password: string }) => {
+  const onFinish = async (values: { account: string; password: string }) => {
     setSubmitting(true);
     setError(null);
     try {
-      await login(values.email, values.password);
+      await login(values.account, values.password);
       navigate(from, { replace: true });
     } catch (err) {
       setError((err as Error).message);
@@ -44,11 +44,11 @@ export function LoginPage() {
         {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} />}
         <Form layout="vertical" onFinish={onFinish} requiredMark={false}>
           <Form.Item
-            name="email"
-            label="邮箱"
-            rules={[{ required: true, type: 'email', message: '请输入邮箱' }]}
+            name="account"
+            label="账号"
+            rules={[{ required: true, whitespace: true, message: '请输入账号或邮箱' }]}
           >
-            <Input autoComplete="username" autoFocus />
+            <Input autoComplete="username" placeholder="账号或邮箱" autoFocus />
           </Form.Item>
           <Form.Item
             name="password"
@@ -61,6 +61,9 @@ export function LoginPage() {
             登录
           </Button>
         </Form>
+        <div style={{ textAlign: 'center', marginTop: 16 }}>
+          还没有账号？<Link to="/register">注册账号</Link>
+        </div>
       </Card>
     </div>
   );

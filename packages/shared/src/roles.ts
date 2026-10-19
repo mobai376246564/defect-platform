@@ -50,3 +50,41 @@ export function hasPermission(role: ProjectRole | undefined, permission: Permiss
   if (!role) return false;
   return PERMISSION_MATRIX[permission].includes(role);
 }
+
+/** 用户职位（注册时选择）。加入项目时按职位给默认角色，可再手动调整。 */
+export const POSITION = {
+  art: '美术',
+  operation: '运营',
+  design: '策划',
+  support: '客服',
+  developer: '开发',
+  tester: '测试',
+  other: '其他',
+} as const;
+export type Position = keyof typeof POSITION;
+export const POSITIONS = Object.keys(POSITION) as Position[];
+
+export const POSITION_DEFAULT_ROLE: Record<Position, ProjectRole> = {
+  art: 'viewer',
+  operation: 'product',
+  design: 'product',
+  support: 'viewer',
+  developer: 'developer',
+  tester: 'tester',
+  other: 'viewer',
+};
+
+export function defaultRoleForPosition(position: string): ProjectRole {
+  return POSITION_DEFAULT_ROLE[position as Position] ?? 'viewer';
+}
+
+/** 账号状态：自助注册的账号为 pending，系统管理员审核通过后才能登录。 */
+export const USER_STATUS = {
+  pending: '待审核',
+  active: '正常',
+  rejected: '已拒绝',
+} as const;
+export type UserStatus = keyof typeof USER_STATUS;
+
+/** 登录账号规则：3–32 位字母、数字、下划线、点或横线，不区分大小写。 */
+export const USERNAME_PATTERN = /^[a-zA-Z0-9_.-]{3,32}$/;

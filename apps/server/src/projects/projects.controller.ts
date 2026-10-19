@@ -1,5 +1,10 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put } from '@nestjs/common';
-import { PROJECT_ROLES, STATUS_CATEGORY, type WorkflowDefinition } from '@defect/shared';
+import {
+  PROJECT_ROLES,
+  STATUS_CATEGORY,
+  type ProjectRole,
+  type WorkflowDefinition,
+} from '@defect/shared';
 import { z } from 'zod';
 import { CurrentUser, type AuthUser } from '../common/auth-user';
 import { ZodPipe } from '../common/zod.pipe';
@@ -51,7 +56,14 @@ const workflowSchema = z.object({
   ),
 });
 
-const memberSchema = z.object({ email: z.email(), role: roleSchema });
+/** account 为账号或邮箱（兼容旧的 email 字段）；不传 role 时按用户职位给默认角色。 */
+const memberSchema = z.preprocess(
+  (v) =>
+    v && typeof v === 'object' && !('account' in v) && 'email' in v
+      ? { ...v, account: (v as { email: unknown }).email }
+      : v,
+  z.object({ account: z.string().trim().min(1).max(254), role: roleSchema.optional() }),
+);
 const moduleSchema = z.object({
   name: z.string().trim().min(1).max(50),
   parentId: z.uuid().nullable().optional(),
@@ -116,7 +128,7 @@ export class ProjectsController {
     @Param('key') key: string,
     @Body(new ZodPipe(memberSchema)) body: z.infer<typeof memberSchema>,
   ) {
-    return this.projects.addMember(key, user, body.email, body.role as never);
+    return this.projects.addMember(key, user, body.account, body.role as ProjectRole | undefined);
   }
 
   @Delete(':key/members/:userId')

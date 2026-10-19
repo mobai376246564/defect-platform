@@ -1,8 +1,15 @@
-import type { ProjectRole, WorkflowDefinition, WorkflowTransition } from '@defect/shared';
+import type {
+  Position,
+  ProjectRole,
+  UserStatus,
+  WorkflowDefinition,
+  WorkflowTransition,
+} from '@defect/shared';
 
 export interface Me {
   id: string;
-  email: string;
+  username: string;
+  email: string | null;
   name: string;
   isSystemAdmin: boolean;
 }
@@ -18,8 +25,10 @@ export interface ProjectSummary {
 
 export interface Member {
   id: string;
+  username: string;
   name: string;
-  email: string;
+  email: string | null;
+  position?: Position;
   role: ProjectRole;
 }
 
@@ -154,8 +163,11 @@ export interface UploadTarget {
 
 export interface AdminUser {
   id: string;
-  email: string;
+  username: string;
+  email: string | null;
   name: string;
+  position: Position;
+  status: UserStatus;
   isSystemAdmin: boolean;
   disabledAt: string | null;
   createdAt: string;

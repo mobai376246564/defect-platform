@@ -88,7 +88,9 @@ export function MePage() {
       <Typography.Title level={4}>个人设置</Typography.Title>
       <Card style={{ marginBottom: 16 }}>
         <Typography.Text>
-          {user?.name}（{user?.email}）{user?.isSystemAdmin && <Tag color="gold">系统管理员</Tag>}
+          {user?.name}（账号 {user?.username}
+          {user?.email ? `，${user.email}` : ''}）
+          {user?.isSystemAdmin && <Tag color="gold">系统管理员</Tag>}
         </Typography.Text>
       </Card>
 

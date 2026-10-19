@@ -14,7 +14,8 @@ import type { Me } from '../api/types';
 interface AuthState {
   user: Me | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  /** account 为账号或邮箱 */
+  login: (account: string, password: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -40,10 +41,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
   }, [logout]);
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (account: string, password: string) => {
     const res = await api<{ accessToken: string; user: Me }>('/auth/login', {
       method: 'POST',
-      body: { email, password },
+      body: { account, password },
     });
     tokenStore.set(res.accessToken);
     setUser(res.user);

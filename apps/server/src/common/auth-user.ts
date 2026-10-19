@@ -4,7 +4,8 @@ import type { Request } from 'express';
 /** 已通过鉴权的调用方。via=token 表示个人 API Token（MCP / 脚本）。 */
 export interface AuthUser {
   id: string;
-  email: string;
+  username: string;
+  email: string | null;
   name: string;
   isSystemAdmin: boolean;
   via: 'jwt' | 'token';

@@ -50,21 +50,24 @@ let seq = 0;
 /** 直接写库创建用户，返回登录后的 token。 */
 export async function createUser(
   ctx: TestContext,
-  opts: { name?: string; isSystemAdmin?: boolean } = {},
-): Promise<{ id: string; email: string; token: string }> {
+  opts: { name?: string; isSystemAdmin?: boolean; position?: string } = {},
+): Promise<{ id: string; username: string; email: string; token: string }> {
   const prisma = ctx.app.get(PrismaService);
-  const email = `user${Date.now()}${seq++}@test.local`;
+  const username = `user${Date.now()}${seq++}`;
+  const email = `${username}@test.local`;
   const password = 'Passw0rd!';
   const user = await prisma.user.create({
     data: {
+      username,
       email,
       name: opts.name ?? email,
+      position: opts.position ?? 'other',
       isSystemAdmin: opts.isSystemAdmin ?? false,
       passwordHash: await bcrypt.hash(password, 4),
     },
   });
   const res = await ctx.http.post('/api/v1/auth/login').send({ email, password }).expect(200);
-  return { id: user.id, email, token: res.body.accessToken as string };
+  return { id: user.id, username, email, token: res.body.accessToken as string };
 }
 
 export const auth = (token: string) => ({ Authorization: `Bearer ${token}` });

@@ -71,7 +71,7 @@ export class NotificationsService {
     if (!body.includes('@')) return [];
     const members = await this.prisma.projectMember.findMany({
       where: { projectId },
-      select: { user: { select: { id: true, name: true, email: true } } },
+      select: { user: { select: { id: true, name: true, username: true, email: true } } },
     });
     return extractMentions(
       body,

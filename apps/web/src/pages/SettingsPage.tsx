@@ -1,5 +1,5 @@
 import { CopyOutlined } from '@ant-design/icons';
-import { PROJECT_ROLE, PROJECT_ROLES } from '@defect/shared';
+import { POSITION, PROJECT_ROLE, PROJECT_ROLES } from '@defect/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
@@ -73,7 +73,12 @@ export function SettingsPage() {
           dataSource={project.members}
           columns={[
             { title: '姓名', dataIndex: 'name' },
-            { title: '邮箱', dataIndex: 'email' },
+            { title: '账号', dataIndex: 'username' },
+            {
+              title: '职位',
+              dataIndex: 'position',
+              render: (v: Member['position']) => (v ? POSITION[v] : '—'),
+            },
             {
               title: '角色',
               dataIndex: 'role',
@@ -84,7 +89,9 @@ export function SettingsPage() {
                     value={role}
                     options={roleOptions}
                     style={{ width: 120 }}
-                    onChange={(r) => void mutate('/members', 'POST', { email: m.email, role: r })}
+                    onChange={(r) =>
+                      void mutate('/members', 'POST', { account: m.username, role: r })
+                    }
                   />
                 ) : (
                   <Tag>{PROJECT_ROLE[role]}</Tag>
@@ -114,13 +121,18 @@ export function SettingsPage() {
             onFinish={(v) => void mutate('/members', 'POST', v, '已添加')}
           >
             <Form.Item
-              name="email"
-              rules={[{ required: true, type: 'email', message: '请输入邮箱' }]}
+              name="account"
+              rules={[{ required: true, whitespace: true, message: '请输入账号或邮箱' }]}
             >
-              <Input placeholder="成员邮箱（需已有账号）" style={{ width: 240 }} />
+              <Input placeholder="账号或邮箱（需已审核通过）" style={{ width: 240 }} />
             </Form.Item>
-            <Form.Item name="role" initialValue="developer">
-              <Select options={roleOptions} style={{ width: 120 }} />
+            <Form.Item name="role">
+              <Select
+                options={roleOptions}
+                allowClear
+                placeholder="按职位默认"
+                style={{ width: 140 }}
+              />
             </Form.Item>
             <Button htmlType="submit">添加成员</Button>
           </Form>

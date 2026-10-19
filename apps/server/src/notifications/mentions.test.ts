@@ -5,6 +5,7 @@ const members = [
   { id: 'wang', name: '小王', email: 'wang@example.com' },
   { id: 'wangzi', name: '小王子', email: 'prince@example.com' },
   { id: 'li', name: 'Li Lei', email: 'li@example.com' },
+  { id: 'zhao', name: '赵六', username: 'zhaoliu', email: null },
 ];
 
 describe('extractMentions', () => {
@@ -18,6 +19,10 @@ describe('extractMentions', () => {
 
   it('matches emails case-insensitively and names with spaces', () => {
     expect(extractMentions('cc @LI@Example.com and @Li Lei', members)).toEqual(['li']);
+  });
+
+  it('matches accounts for members without an email', () => {
+    expect(extractMentions('@ZhaoLiu 请复现', members)).toEqual(['zhao']);
   });
 
   it('ignores @ inside an email address and unknown names', () => {

@@ -16,7 +16,7 @@ import { currentTab, reportQuery } from './query';
 const project = {
   workflow: DEFAULT_WORKFLOW,
   modules: [{ id: 'm1', name: '支付', parentId: null, ownerId: null }],
-  members: [{ id: 'u1', name: '小王', email: 'w@x', role: 'developer' }],
+  members: [{ id: 'u1', username: 'wang', name: '小王', email: 'w@x', role: 'developer' }],
 } as unknown as ProjectDetail;
 
 describe('formatting', () => {

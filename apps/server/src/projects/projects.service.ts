@@ -7,7 +7,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { DEFAULT_WORKFLOW, validateWorkflow, type WorkflowDefinition } from '@defect/shared';
+import {
+  DEFAULT_WORKFLOW,
+  defaultRoleForPosition,
+  validateWorkflow,
+  type WorkflowDefinition,
+} from '@defect/shared';
 import { API_PREFIX } from '../bootstrap';
 import type { AuthUser } from '../common/auth-user';
 import { APP_ENV, type AppEnv } from '../config/env';
@@ -81,7 +86,9 @@ export class ProjectsService {
       }),
       this.prisma.projectMember.findMany({
         where: { projectId: project.id },
-        include: { user: { select: { id: true, name: true, email: true } } },
+        include: {
+          user: { select: { id: true, username: true, name: true, email: true, position: true } },
+        },
         orderBy: { createdAt: 'asc' },
       }),
     ]);
@@ -170,14 +177,25 @@ export class ProjectsService {
     return workflow;
   }
 
-  async addMember(projectKey: string, user: AuthUser, email: string, role: ProjectRole) {
+  /** 按账号或邮箱添加成员；未指定角色时新成员按职位取默认角色，已有成员保持原角色。 */
+  async addMember(projectKey: string, user: AuthUser, account: string, role?: ProjectRole) {
     const { project } = await this.access.require(projectKey, user, 'project.members');
-    const target = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
-    if (!target) throw new NotFoundException(`用户 ${email} 不存在，请先由系统管理员创建`);
+    const key = account.trim().toLowerCase();
+    const target = await this.prisma.user.findFirst({
+      where: { OR: [{ username: key }, { email: key }] },
+    });
+    if (!target) throw new NotFoundException(`用户 ${account} 不存在，请先注册或由系统管理员创建`);
+    if (target.status !== 'active' || target.disabledAt) {
+      throw new BadRequestException(`用户 ${account} 尚未通过审核或已被禁用`);
+    }
     return this.prisma.projectMember.upsert({
       where: { projectId_userId: { projectId: project.id, userId: target.id } },
-      create: { projectId: project.id, userId: target.id, role },
-      update: { role },
+      create: {
+        projectId: project.id,
+        userId: target.id,
+        role: role ?? defaultRoleForPosition(target.position),
+      },
+      update: role ? { role } : {},
     });
   }
 

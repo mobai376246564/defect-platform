@@ -23,6 +23,7 @@ import {
 import { Link, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useProjects, useUnreadCount } from '../api/hooks';
 import { useAuth } from '../auth/AuthContext';
+import { usePendingUserCount } from '../pages/UsersPage';
 import { menuSection } from './section';
 
 const { Header, Sider, Content } = Layout;
@@ -34,6 +35,7 @@ export function AppLayout() {
   const location = useLocation();
   const projects = useProjects();
   const unread = useUnreadCount();
+  const pendingUsers = usePendingUserCount(!!user?.isSystemAdmin);
 
   const section = menuSection(location.pathname);
 
@@ -68,13 +70,21 @@ export function AppLayout() {
         )}
         <div style={{ flex: 1 }} />
         {user?.isSystemAdmin && (
-          <Tooltip title="用户管理">
-            <Button
-              type="text"
-              aria-label="用户管理"
-              icon={<TeamOutlined style={{ color: '#fff', fontSize: 18 }} />}
-              onClick={() => navigate('/admin/users')}
-            />
+          <Tooltip
+            title={
+              pendingUsers.data?.count
+                ? `用户管理（${pendingUsers.data.count} 个注册待审核）`
+                : '用户管理'
+            }
+          >
+            <Badge count={pendingUsers.data?.count ?? 0} size="small" offset={[-4, 4]}>
+              <Button
+                type="text"
+                aria-label="用户管理"
+                icon={<TeamOutlined style={{ color: '#fff', fontSize: 18 }} />}
+                onClick={() => navigate('/admin/users')}
+              />
+            </Badge>
           </Tooltip>
         )}
         <Tooltip title="通知中心">

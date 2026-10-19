@@ -22,8 +22,14 @@ enum ProjectRole {
 
 model User {
   id            String    @id @default(uuid()) @db.Uuid
-  email         String    @unique
+  /// 登录账号，统一存小写；登录时账号或邮箱均可
+  username      String    @unique
+  email         String?   @unique
   name          String
+  /// 职位（取值见 @defect/shared 的 POSITION），加入项目时据此给默认角色
+  position      String    @default("other")
+  /// 账号状态：pending 注册待审核 / active 正常 / rejected 审核拒绝
+  status        String    @default("active")
   passwordHash  String?
   isSystemAdmin Boolean   @default(false)
   disabledAt    DateTime?

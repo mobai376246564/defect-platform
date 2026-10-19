@@ -2,7 +2,7 @@
  * 初始化数据：系统管理员 + 示例项目。可重复执行（已存在则跳过）。
  *
  * 生产环境首次部署时，通过环境变量指定管理员账号：
- *   SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD / SEED_ADMIN_NAME
+ *   SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD / SEED_ADMIN_NAME（登录账号默认取邮箱前缀，可用 SEED_ADMIN_USERNAME 指定）
  * 本地开发不设置时使用下方的开发默认账号（仅限本地使用）。
  * SEED_DEMO=false 可跳过示例项目与示例成员。
  */
@@ -13,14 +13,30 @@ import bcrypt from 'bcryptjs';
 import { PrismaClient, type Prisma } from '../src/generated/prisma/client';
 
 const DEV_USERS = [
-  { email: 'admin@example.com', name: '管理员', password: 'Admin@123456', isSystemAdmin: true },
   {
+    username: 'admin',
+    email: 'admin@example.com',
+    name: '管理员',
+    position: 'other',
+    password: 'Admin@123456',
+    isSystemAdmin: true,
+  },
+  {
+    username: 'tester',
     email: 'tester@example.com',
     name: '测试小王',
+    position: 'tester',
     password: 'Tester@123456',
     isSystemAdmin: false,
   },
-  { email: 'dev@example.com', name: '开发小李', password: 'Dev@1234567', isSystemAdmin: false },
+  {
+    username: 'dev',
+    email: 'dev@example.com',
+    name: '开发小李',
+    position: 'developer',
+    password: 'Dev@1234567',
+    isSystemAdmin: false,
+  },
 ];
 
 async function main(): Promise<void> {
@@ -37,8 +53,10 @@ async function main(): Promise<void> {
     const users = adminEmail
       ? [
           {
+            username: (process.env.SEED_ADMIN_USERNAME ?? adminEmail.split('@')[0]!).toLowerCase(),
             email: adminEmail,
             name: process.env.SEED_ADMIN_NAME ?? '管理员',
+            position: 'other',
             password: process.env.SEED_ADMIN_PASSWORD!,
             isSystemAdmin: true,
           },
@@ -47,13 +65,17 @@ async function main(): Promise<void> {
 
     const ids: Record<string, string> = {};
     for (const u of users) {
-      const existing = await prisma.user.findUnique({ where: { email: u.email } });
+      const existing = await prisma.user.findFirst({
+        where: { OR: [{ email: u.email }, { username: u.username }] },
+      });
       const user =
         existing ??
         (await prisma.user.create({
           data: {
+            username: u.username,
             email: u.email,
             name: u.name,
+            position: u.position,
             isSystemAdmin: u.isSystemAdmin,
             passwordHash: await bcrypt.hash(u.password, 10),
           },

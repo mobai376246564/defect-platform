@@ -7,7 +7,7 @@ const project = {
   workflow: DEFAULT_WORKFLOW,
   modules: [{ id: 'm1', name: '订单', parentId: null, ownerId: null }],
   versions: [],
-  members: [{ id: 'u1', name: '开发小李', email: 'd@x', role: 'developer' }],
+  members: [{ id: 'u1', username: 'dev', name: '开发小李', email: 'd@x', role: 'developer' }],
 } as unknown as ProjectDetail;
 
 const h = (field: string, oldValue: unknown, newValue: unknown): HistoryItem => ({

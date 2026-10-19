@@ -8,14 +8,29 @@ import {
   Param,
   Post,
 } from '@nestjs/common';
+import { POSITIONS } from '@defect/shared';
 import { z } from 'zod';
 import { CurrentUser, Public, type AuthUser } from '../common/auth-user';
 import { ZodPipe } from '../common/zod.pipe';
-import { AuthService, passwordSchema } from './auth.service';
+import { AuthService, passwordSchema, usernameSchema } from './auth.service';
 
-const loginSchema = z.object({
-  email: z.email(),
-  password: z.string().min(1),
+/** account 为账号或邮箱；兼容旧客户端的 { email, password }。 */
+const loginSchema = z.preprocess(
+  (v) =>
+    v && typeof v === 'object' && !('account' in v) && 'email' in v
+      ? { ...v, account: (v as { email: unknown }).email }
+      : v,
+  z.object({
+    account: z.string().trim().min(1, '请输入账号').max(254),
+    password: z.string().min(1),
+  }),
+);
+
+const registerSchema = z.object({
+  username: usernameSchema,
+  password: passwordSchema,
+  position: z.enum(POSITIONS),
+  name: z.string().trim().max(50).optional(),
 });
 
 const changePasswordSchema = z.object({
@@ -37,7 +52,14 @@ export class AuthController {
   @Post('login')
   @HttpCode(200)
   login(@Body(new ZodPipe(loginSchema)) body: z.infer<typeof loginSchema>) {
-    return this.auth.login(body.email, body.password);
+    return this.auth.login(body.account, body.password);
+  }
+
+  /** 自助注册，账号需系统管理员审核通过后才能登录。 */
+  @Public()
+  @Post('register')
+  register(@Body(new ZodPipe(registerSchema)) body: z.infer<typeof registerSchema>) {
+    return this.auth.register(body);
   }
 
   @Get('me')
