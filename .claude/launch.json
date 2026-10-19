@@ -3,13 +3,13 @@
   "configurations": [
     {
       "name": "server",
-      "runtimeExecutable": "C:\\Program Files\\nodejs\\npm.cmd",
+      "runtimeExecutable": "D:\\MyTools\\nodejs\\npm.cmd",
       "runtimeArgs": ["run", "start:dev", "-w", "@defect/server"],
       "port": 3000
     },
     {
       "name": "web",
-      "runtimeExecutable": "C:\\Program Files\\nodejs\\npm.cmd",
+      "runtimeExecutable": "D:\\MyTools\\nodejs\\npm.cmd",
       "runtimeArgs": ["run", "dev", "-w", "@defect/web"],
       "port": 5173
     }
