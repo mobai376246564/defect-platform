@@ -95,6 +95,12 @@ export class ProjectsController {
     return this.projects.update(key, user, body);
   }
 
+  /** 生成或重置 Git Webhook 密钥，返回 Webhook 地址与密钥明文（只显示这一次） */
+  @Post(':key/webhook-secret')
+  resetWebhookSecret(@CurrentUser() user: AuthUser, @Param('key') key: string) {
+    return this.projects.resetWebhookSecret(key, user);
+  }
+
   @Put(':key/workflow')
   updateWorkflow(
     @CurrentUser() user: AuthUser,

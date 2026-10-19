@@ -60,6 +60,8 @@ model Project {
   /// 绑定的 APP 包名，APP 反馈按包名映射到项目
   appIds      String[]
   repoUrl     String?
+  /// Git 平台 Webhook 密钥（GitHub 用于 HMAC 签名，GitLab 作为 X-Gitlab-Token 比对），需明文保存
+  webhookSecret String?
   /// 工作流定义（WorkflowDefinition），见 @defect/shared
   workflow    Json
   /// 缺陷编号自增序列

@@ -4,7 +4,7 @@ export function sha256Hex(input: string | Buffer): string {
   return createHash('sha256').update(input).digest('hex');
 }
 
-export function hmacSha256Hex(secret: string, input: string): string {
+export function hmacSha256Hex(secret: string, input: string | Buffer): string {
   return createHmac('sha256', secret).update(input).digest('hex');
 }
 

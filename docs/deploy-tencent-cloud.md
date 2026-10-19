@@ -124,15 +124,38 @@ docker compose -f deploy/docker-compose.prod.yml logs -f server
 4. 触发器：COS 触发，存储桶选择上面的桶，事件 `cos:ObjectCreated:*`，前缀 `feedback/`，后缀 `manifest.json`。
 5. 验证：在本地 `apps/server` 目录配置 `STORAGE_DRIVER=cos` 后执行 `npx tsx scripts/simulate-feedback.ts --no-event`，几秒内平台应出现新缺陷（经 SCF 转发）；关闭触发器再执行一次，10 分钟内由对账任务补单。
 
-## 7. 上线后检查
+## 7. 在 GitHub/GitLab 配置 Webhook（方案 7.7）
+
+配置后，平台按分支名、提交信息、MR 标题里的缺陷编号自动关联 branch / commit / MR；MR 合并时，处于「待代码审核」的缺陷以系统身份流转为「已解决」并指派给验证人，评论中记录 MR 链接。其他状态的缺陷只关联、不流转。每个项目单独配置。
+
+1. **生成密钥**：项目管理员打开「项目设置 → 集成」，复制 Webhook 地址（形如 `https://defects.example.com/api/v1/webhooks/git/APP`，GitHub、GitLab 共用），点击「生成密钥」并立即复制（只显示一次）。重置后旧密钥立即失效，需同步更新 Git 平台。
+2. **GitHub**：仓库 Settings → Webhooks → Add webhook
+   - Payload URL：上面的 Webhook 地址
+   - Content type：`application/json`
+   - Secret：上面的密钥（平台按 `X-Hub-Signature-256` 校验 HMAC-SHA256 签名）
+   - 事件：选「Let me select individual events」，勾选 **Pushes** 与 **Pull requests**
+   - 保存后 GitHub 会发送 ping，Recent Deliveries 中返回 200 即连通
+3. **GitLab**：项目 Settings → Webhooks → Add new webhook
+   - URL：上面的 Webhook 地址
+   - Secret token：上面的密钥（平台比对 `X-Gitlab-Token`）
+   - 触发：勾选 **Push events**（可限定分支）与 **Merge request events**
+   - 开启 SSL verification；保存后用「Test → Push events」验证返回 200
+4. **网络**：Git 平台必须能访问 Webhook 地址。若第 5 节配置了 IP 白名单，需放行 GitHub 的 Webhook 出口 IP（见 `https://api.github.com/meta` 的 `hooks` 字段）或自建 GitLab 的出口 IP；自建 GitLab 访问内网地址时，需要管理员在 Admin → Settings → Network → Outbound requests 中允许。
+5. **团队约定**：提交信息写 `fix(APP-12): 修复支付后订单未刷新`，或分支命名 `fix/APP-12-pay-refresh`（大小写均可），MR 标题带上编号。分支名含编号时，该分支上的所有提交都会关联到该缺陷。
+6. **排查**：签名或 Token 不对、项目未生成密钥时返回 401；无法识别来源返回 400；ping、tag 推送、删除分支等事件返回 200 并带 `ignored: true`。响应体中的 `linked`、`transitioned` 列出本次关联与流转的缺陷，可在 Git 平台的投递记录中查看。
+
+> 腾讯工蜂与 GitLab 的 Webhook 格式相近，后续接入只需在 `apps/server/src/git-webhooks/` 新增一个适配器（实现 `GitProvider`）并加入 `GIT_PROVIDERS`。
+
+## 8. 上线后检查
 
 - [ ] 用管理员账号登录，创建项目、绑定 APP 包名、添加成员与模块
 - [ ] 网页提单并上传截图、录屏、日志，详情页可预览，录屏关键帧已生成
 - [ ] 个人设置中创建 Token，按页面提示在 Claude Code 中执行 `claude mcp add`，`/mcp` 显示 defects 已连接
 - [ ] Claude Code 中执行 `/mcp__defects__fix_bug <缺陷编号>`，能读到描述、截图、日志
 - [ ] APP 测试包提单后自动建单（或用 simulate-feedback 模拟）
+- [ ] 配置 Git Webhook 后，把一个缺陷推进到「待代码审核」，合并带编号的 MR，缺陷自动变为「已解决」
 
-## 8. 运维
+## 9. 运维
 
 | 事项     | 做法                                                                                                  |
 | -------- | ----------------------------------------------------------------------------------------------------- |

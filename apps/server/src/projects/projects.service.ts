@@ -1,12 +1,16 @@
+import { randomBytes } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { DEFAULT_WORKFLOW, validateWorkflow, type WorkflowDefinition } from '@defect/shared';
+import { API_PREFIX } from '../bootstrap';
 import type { AuthUser } from '../common/auth-user';
+import { APP_ENV, type AppEnv } from '../config/env';
 import type { Prisma, ProjectRole } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProjectAccessService } from './project-access.service';
@@ -16,6 +20,7 @@ export class ProjectsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: ProjectAccessService,
+    @Inject(APP_ENV) private readonly env: AppEnv,
   ) {}
 
   async listForUser(user: AuthUser) {
@@ -93,7 +98,28 @@ export class ProjectsService {
       modules,
       versions,
       members: members.map((m) => ({ ...m.user, role: m.role })),
+      // Webhook 地址与密钥状态只给项目管理员看
+      webhook:
+        role === 'admin'
+          ? { url: this.webhookUrl(project.key), secretConfigured: !!project.webhookSecret }
+          : null,
     };
+  }
+
+  /** 生成或重置 Git Webhook 密钥（方案 7.7），明文只在本次响应中返回 */
+  async resetWebhookSecret(projectKey: string, user: AuthUser) {
+    const { project } = await this.access.require(projectKey, user, 'project.configure');
+    const secret = randomBytes(32).toString('hex');
+    await this.prisma.project.update({
+      where: { id: project.id },
+      data: { webhookSecret: secret },
+    });
+    return { url: this.webhookUrl(project.key), secret };
+  }
+
+  private webhookUrl(projectKey: string): string {
+    const base = this.env.PUBLIC_BASE_URL.replace(/\/+$/, '');
+    return `${base}/${API_PREFIX}/webhooks/git/${projectKey}`;
   }
 
   async update(
@@ -108,7 +134,11 @@ export class ProjectsService {
     },
   ) {
     const { project } = await this.access.require(projectKey, user, 'project.configure');
-    return this.prisma.project.update({ where: { id: project.id }, data: patch });
+    return this.prisma.project.update({
+      where: { id: project.id },
+      data: patch,
+      omit: { webhookSecret: true },
+    });
   }
 
   async updateWorkflow(projectKey: string, user: AuthUser, workflow: WorkflowDefinition) {

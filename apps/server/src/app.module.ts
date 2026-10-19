@@ -3,6 +3,7 @@ import { AttachmentsModule } from './attachments/attachments.module';
 import { AuthModule } from './auth/auth.module';
 import { ConfigModule } from './config/config.module';
 import { DefectsModule } from './defects/defects.module';
+import { GitWebhooksModule } from './git-webhooks/git-webhooks.module';
 import { HealthController } from './health/health.controller';
 import { IngestModule } from './ingest/ingest.module';
 import { JobsModule } from './jobs/jobs.module';
@@ -26,6 +27,7 @@ import { UsersController } from './users/users.controller';
     IngestModule,
     MediaModule,
     McpModule,
+    GitWebhooksModule,
   ],
   controllers: [HealthController, UsersController],
 })

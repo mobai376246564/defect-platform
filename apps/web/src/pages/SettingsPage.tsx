@@ -1,5 +1,7 @@
+import { CopyOutlined } from '@ant-design/icons';
 import { PROJECT_ROLE, PROJECT_ROLES } from '@defect/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import {
   App,
   Alert,
@@ -7,6 +9,7 @@ import {
   Card,
   Form,
   Input,
+  Modal,
   Popconfirm,
   Select,
   Skeleton,
@@ -18,7 +21,7 @@ import {
 import { useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { qk, useProject } from '../api/hooks';
-import type { Member, ModuleItem, VersionItem } from '../api/types';
+import type { Member, ModuleItem, ProjectDetail, VersionItem } from '../api/types';
 import { userName } from '../components/UserNames';
 
 const roleOptions = PROJECT_ROLES.map((r) => ({ value: r, label: PROJECT_ROLE[r] }));
@@ -241,6 +244,110 @@ export function SettingsPage() {
           />
         </Space.Compact>
       </Card>
+
+      {isAdmin && project.webhook && (
+        <IntegrationCard projectKey={key} webhook={project.webhook} onChanged={refresh} />
+      )}
     </div>
+  );
+}
+
+/** 集成：Git 平台 Webhook（方案 7.7），MR 合并后自动关联提交并把缺陷流转为已解决 */
+function IntegrationCard({
+  projectKey,
+  webhook,
+  onChanged,
+}: {
+  projectKey: string;
+  webhook: NonNullable<ProjectDetail['webhook']>;
+  onChanged: () => void;
+}) {
+  const { message } = App.useApp();
+  const [secret, setSecret] = useState<string | null>(null);
+  const reset = useMutation({
+    mutationFn: () =>
+      api<{ url: string; secret: string }>(`/projects/${projectKey}/webhook-secret`, {
+        method: 'POST',
+      }),
+    onSuccess: (res) => {
+      setSecret(res.secret);
+      onChanged();
+    },
+    onError: (e: Error) => message.error(e.message),
+  });
+  const copy = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      message.success('已复制');
+    } catch {
+      message.info('请手动复制');
+    }
+  };
+
+  return (
+    <Card
+      title="集成"
+      extra={
+        <Typography.Text type="secondary">
+          Git Webhook：自动关联提交与 MR，MR 合并后缺陷自动变为已解决
+        </Typography.Text>
+      }
+      style={{ marginTop: 16 }}
+    >
+      <Space direction="vertical" style={{ width: '100%' }}>
+        <Typography.Text strong>Webhook 地址（GitHub、GitLab 通用）</Typography.Text>
+        <Space.Compact style={{ width: '100%' }}>
+          <Input readOnly value={webhook.url} />
+          <Button icon={<CopyOutlined />} onClick={() => void copy(webhook.url)}>
+            复制
+          </Button>
+        </Space.Compact>
+        <Space>
+          <Typography.Text strong>密钥</Typography.Text>
+          {webhook.secretConfigured ? <Tag color="green">已配置</Tag> : <Tag>未配置</Tag>}
+          {webhook.secretConfigured ? (
+            <Popconfirm
+              title="重置密钥？"
+              description="旧密钥立即失效，需同步更新 Git 平台上的 Webhook 配置"
+              onConfirm={() => reset.mutate()}
+            >
+              <Button loading={reset.isPending}>重置密钥</Button>
+            </Popconfirm>
+          ) : (
+            <Button type="primary" loading={reset.isPending} onClick={() => reset.mutate()}>
+              生成密钥
+            </Button>
+          )}
+        </Space>
+        <Typography.Text type="secondary">
+          GitHub：Content type 选 application/json，Secret 填密钥，事件勾选 Pushes 与 Pull
+          requests。GitLab：Secret token 填密钥，勾选 Push events 与 Merge request
+          events。分支名、提交信息或 MR 标题中写缺陷编号（如 fix({projectKey}-12): …）即可关联。
+        </Typography.Text>
+      </Space>
+
+      <Modal
+        title="Webhook 密钥已生成"
+        open={!!secret}
+        onCancel={() => setSecret(null)}
+        footer={<Button onClick={() => setSecret(null)}>我已保存</Button>}
+        width={640}
+      >
+        <Alert
+          type="warning"
+          showIcon
+          message="密钥只显示这一次，请立即填到 Git 平台的 Webhook 配置中"
+          style={{ marginBottom: 12 }}
+        />
+        {secret && (
+          <Space.Compact style={{ width: '100%' }}>
+            <Input readOnly value={secret} />
+            <Button icon={<CopyOutlined />} onClick={() => void copy(secret)}>
+              复制密钥
+            </Button>
+          </Space.Compact>
+        )}
+      </Modal>
+    </Card>
   );
 }

@@ -50,6 +50,8 @@ export interface ProjectDetail {
   modules: ModuleItem[];
   versions: VersionItem[];
   members: Member[];
+  /** Git Webhook 地址与密钥状态，仅项目管理员可见 */
+  webhook: { url: string; secretConfigured: boolean } | null;
 }
 
 export interface DefectRow {
