@@ -29,5 +29,11 @@ export default tseslint.config(
       '@typescript-eslint/consistent-type-imports': 'off',
     },
   },
+  {
+    // SCF 云函数以 CommonJS 形式部署
+    files: ['deploy/**/*.js'],
+    languageOptions: { sourceType: 'commonjs' },
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
+  },
   prettier,
 );

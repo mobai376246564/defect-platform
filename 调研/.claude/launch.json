@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "server",
+      "runtimeExecutable": "C:\\Program Files\\nodejs\\npm.cmd",
+      "runtimeArgs": ["--prefix", "F:\\DefectManagement\\apps\\server", "run", "start:dev"],
+      "port": 3000
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "C:\\Program Files\\nodejs\\npm.cmd",
+      "runtimeArgs": ["--prefix", "F:\\DefectManagement\\apps\\web", "run", "dev"],
+      "port": 5173
+    }
+  ]
+}

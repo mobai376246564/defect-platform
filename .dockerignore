@@ -1,0 +1,11 @@
+**/node_modules
+**/dist
+**/coverage
+.data
+.git
+.env
+**/.env
+deploy/.env.production
+apps/server/src/generated
+调研
+*.log

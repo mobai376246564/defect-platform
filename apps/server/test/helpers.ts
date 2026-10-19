@@ -6,6 +6,9 @@ import { Test } from '@nestjs/testing';
 import bcrypt from 'bcryptjs';
 import request from 'supertest';
 import type TestAgent from 'supertest/lib/agent';
+import { AppModule } from '../src/app.module';
+import { configureApp } from '../src/bootstrap';
+import { PrismaService } from '../src/prisma/prisma.service';
 
 export const TEST_HMAC_SECRET = 'test-ingest-secret';
 
@@ -33,10 +36,8 @@ export interface TestContext {
 }
 
 export async function createTestApp(): Promise<TestContext> {
+  // 环境变量在模块编译（ConfigModule 的工厂执行）时才读取，所以先设置再编译
   const storageDir = setTestEnv();
-  // 必须在设置环境变量之后再加载应用模块
-  const { AppModule } = await import('../src/app.module');
-  const { configureApp } = await import('../src/bootstrap');
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   const app = moduleRef.createNestApplication({ rawBody: true });
   configureApp(app);
@@ -51,7 +52,6 @@ export async function createUser(
   ctx: TestContext,
   opts: { name?: string; isSystemAdmin?: boolean } = {},
 ): Promise<{ id: string; email: string; token: string }> {
-  const { PrismaService } = await import('../src/prisma/prisma.service');
   const prisma = ctx.app.get(PrismaService);
   const email = `user${Date.now()}${seq++}@test.local`;
   const password = 'Passw0rd!';
