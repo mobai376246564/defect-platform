@@ -1,22 +1,33 @@
 import { Spin } from 'antd';
-import type { ReactNode } from 'react';
+import { lazy, Suspense, type ReactNode } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './auth/AuthContext';
 import { AppLayout } from './layouts/AppLayout';
 import { LoginPage } from './pages/LoginPage';
-import { MePage } from './pages/MePage';
-import { ProjectsPage } from './pages/ProjectsPage';
-import { RegisterPage } from './pages/RegisterPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { SystemPage } from './pages/SystemPage';
 import { TodoPage } from './pages/TodoPage';
-import { UsersPage } from './pages/UsersPage';
-import { DefectCreatePage } from './pages/defects/DefectCreatePage';
-import { DefectDetailPage } from './pages/defects/DefectDetailPage';
-import { DefectBoardPage } from './pages/defects/DefectBoardPage';
-import { DefectListPage } from './pages/defects/DefectListPage';
-import { NotificationsPage } from './pages/notifications/NotificationsPage';
-import { ReportsPage } from './pages/reports/ReportsPage';
+
+/**
+ * 除登录页和首页（我的待办）外，其余页面按需加载：首屏只下载用得到的代码，
+ * 报表的图表库等大依赖只在打开对应页面时才加载。
+ */
+const page = <K extends string>(load: () => Promise<Record<K, () => ReactNode>>, name: K) =>
+  lazy(async () => ({ default: (await load())[name] }));
+
+const RegisterPage = page(() => import('./pages/RegisterPage'), 'RegisterPage');
+const MePage = page(() => import('./pages/MePage'), 'MePage');
+const ProjectsPage = page(() => import('./pages/ProjectsPage'), 'ProjectsPage');
+const SettingsPage = page(() => import('./pages/SettingsPage'), 'SettingsPage');
+const SystemPage = page(() => import('./pages/SystemPage'), 'SystemPage');
+const UsersPage = page(() => import('./pages/UsersPage'), 'UsersPage');
+const DefectCreatePage = page(() => import('./pages/defects/DefectCreatePage'), 'DefectCreatePage');
+const DefectDetailPage = page(() => import('./pages/defects/DefectDetailPage'), 'DefectDetailPage');
+const DefectBoardPage = page(() => import('./pages/defects/DefectBoardPage'), 'DefectBoardPage');
+const DefectListPage = page(() => import('./pages/defects/DefectListPage'), 'DefectListPage');
+const NotificationsPage = page(
+  () => import('./pages/notifications/NotificationsPage'),
+  'NotificationsPage',
+);
+const ReportsPage = page(() => import('./pages/reports/ReportsPage'), 'ReportsPage');
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -31,7 +42,14 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
-      <Route path="/register" element={<RegisterPage />} />
+      <Route
+        path="/register"
+        element={
+          <Suspense fallback={<Spin fullscreen />}>
+            <RegisterPage />
+          </Suspense>
+        }
+      />
       <Route
         element={
           <RequireAuth>

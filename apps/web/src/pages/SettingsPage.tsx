@@ -22,6 +22,7 @@ import {
   Menu,
   Modal,
   Popconfirm,
+  Result,
   Select,
   Skeleton,
   Space,
@@ -29,7 +30,7 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { qk, useProject } from '../api/hooks';
 import type { Member, ModuleItem, ProjectDetail, VersionItem } from '../api/types';
@@ -79,6 +80,16 @@ export function SettingsPage() {
 
   if (!project) return <Skeleton active />;
   const isAdmin = project.myRole === 'admin';
+  // 项目设置只对项目管理员开放；侧边栏不显示入口，直接输入地址进来的也拦住
+  if (!isAdmin)
+    return (
+      <Result
+        status="403"
+        title="只有项目管理员可以访问项目设置"
+        subTitle="需要调整模块、版本、成员或工作流时，请联系项目管理员。"
+        extra={<Link to={`/p/${key}/bugs`}>返回缺陷列表</Link>}
+      />
+    );
   // 集成（Webhook 密钥）只有项目管理员能看到
   const tabs = SETTINGS_TABS.filter((t) => t.key !== 'integration' || (isAdmin && project.webhook));
   const requested = params.get('tab');
@@ -87,14 +98,6 @@ export function SettingsPage() {
   return (
     <div>
       <Typography.Title level={4}>项目设置 · {project.name}</Typography.Title>
-      {!isAdmin && (
-        <Alert
-          type="info"
-          showIcon
-          message="只有项目管理员可以修改设置"
-          style={{ marginBottom: 16 }}
-        />
-      )}
 
       <div className="settings-layout">
         <nav className="settings-nav">

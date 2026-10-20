@@ -71,8 +71,19 @@ export function ResizableHeaderCell({
     const th = e.currentTarget.parentElement!;
     const startX = e.clientX;
     const startWidth = th.getBoundingClientRect().width;
-    const move = (ev: MouseEvent) => onResize(startWidth + ev.clientX - startX);
+    // 鼠标移动事件比屏幕刷新快得多：每帧最多更新一次列宽（整表重渲染一次），松手时补上最后的宽度
+    let latest = startWidth;
+    let frame = 0;
+    const move = (ev: MouseEvent) => {
+      latest = startWidth + ev.clientX - startX;
+      frame ||= requestAnimationFrame(() => {
+        frame = 0;
+        onResize(latest);
+      });
+    };
     const up = () => {
+      cancelAnimationFrame(frame);
+      onResize(latest);
       document.removeEventListener('mousemove', move);
       document.removeEventListener('mouseup', up);
       document.body.classList.remove('col-resizing');

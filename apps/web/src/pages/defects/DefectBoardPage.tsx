@@ -16,7 +16,7 @@ import {
   Switch,
   Typography,
 } from 'antd';
-import { useMemo, useState, type DragEvent } from 'react';
+import { memo, useCallback, useMemo, useRef, useState, type DragEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import { qk, useDefects, useProject } from '../../api/hooks';
@@ -41,6 +41,15 @@ function Board({ project }: { project: ProjectDetail }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const drawer = useDefectDrawer();
+  // 卡片的回调保持稳定，拖拽时只有被拖的那张卡片重渲染（卡片用 memo 包装）
+  const openRef = useRef(drawer.open);
+  openRef.current = drawer.open;
+  const openDefect = useCallback((code: string) => openRef.current(code), []);
+  const onCardDragStart = useCallback((d: DefectRow) => setDragging(d), []);
+  const onCardDragEnd = useCallback(() => {
+    setDragging(null);
+    setHover(null);
+  }, []);
   const [owner, setOwner] = useState<'all' | 'me'>('all');
   const [moduleId, setModuleId] = useState<string>();
   const [severity, setSeverity] = useState<string[]>([]);
@@ -225,43 +234,15 @@ function Board({ project }: { project: ProjectDetail }) {
                   </Typography.Text>
                 ) : (
                   col.items.map((d) => (
-                    <Card
+                    <BoardCard
                       key={d.id}
-                      size="small"
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.effectAllowed = 'move';
-                        e.dataTransfer.setData('text/plain', d.code);
-                        setDragging(d);
-                      }}
-                      onDragEnd={() => {
-                        setDragging(null);
-                        setHover(null);
-                      }}
-                      style={{ cursor: 'grab', opacity: dragging?.id === d.id ? 0.5 : 1 }}
-                      styles={{ body: { padding: 10 } }}
-                    >
-                      <Space size={6} style={{ marginBottom: 4 }}>
-                        <Link
-                          data-open-defect
-                          to={`/p/${project.key}/bugs/${d.code}`}
-                          onClick={(e) => {
-                            if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
-                            e.preventDefault();
-                            drawer.open(d.code);
-                          }}
-                        >
-                          {d.code}
-                        </Link>
-                        <SeverityTag value={d.severity} />
-                      </Space>
-                      <Typography.Paragraph ellipsis={{ rows: 2 }} style={{ margin: 0 }}>
-                        {d.title}
-                      </Typography.Paragraph>
-                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                        <UserNames members={project.members} ids={d.ownerIds} />
-                      </Typography.Text>
-                    </Card>
+                      defect={d}
+                      project={project}
+                      dragging={dragging?.id === d.id}
+                      onDragStart={onCardDragStart}
+                      onDragEnd={onCardDragEnd}
+                      onOpen={openDefect}
+                    />
                   ))
                 )}
               </div>
@@ -284,3 +265,56 @@ function Board({ project }: { project: ProjectDetail }) {
     </div>
   );
 }
+
+/** 看板卡片：用 memo 包装，拖拽状态变化时其他卡片不重渲染 */
+const BoardCard = memo(function BoardCard({
+  defect: d,
+  project,
+  dragging,
+  onDragStart,
+  onDragEnd,
+  onOpen,
+}: {
+  defect: DefectRow;
+  project: ProjectDetail;
+  dragging: boolean;
+  onDragStart: (d: DefectRow) => void;
+  onDragEnd: () => void;
+  onOpen: (code: string) => void;
+}) {
+  return (
+    <Card
+      size="small"
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', d.code);
+        onDragStart(d);
+      }}
+      onDragEnd={onDragEnd}
+      style={{ cursor: 'grab', opacity: dragging ? 0.5 : 1 }}
+      styles={{ body: { padding: 10 } }}
+    >
+      <Space size={6} style={{ marginBottom: 4 }}>
+        <Link
+          data-open-defect
+          to={`/p/${project.key}/bugs/${d.code}`}
+          onClick={(e) => {
+            if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+            e.preventDefault();
+            onOpen(d.code);
+          }}
+        >
+          {d.code}
+        </Link>
+        <SeverityTag value={d.severity} />
+      </Space>
+      <Typography.Paragraph ellipsis={{ rows: 2 }} style={{ margin: 0 }}>
+        {d.title}
+      </Typography.Paragraph>
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        <UserNames members={project.members} ids={d.ownerIds} />
+      </Typography.Text>
+    </Card>
+  );
+});

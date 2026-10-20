@@ -96,8 +96,13 @@ export function DefectListPage() {
     setSelected([]);
     setAllMatching(false);
   }, [filterKey]);
-  // 与表格同一个查询，react-query 会复用结果，用于显示筛选结果总数
-  const listForTotal = useDefects(key, query);
+  // 与表格同一个查询，react-query 会复用结果，用于显示筛选结果总数；分组视图下表格不用它，不发这个请求
+  const listForTotal = useDefects(key, query, !groupBy);
+  const groupTotal = useDefectGroups(
+    key,
+    { ...query, page: undefined, pageSize: undefined, groupBy },
+    !!groupBy,
+  );
   const selection = {
     keys: selected,
     onChange: (keys: string[]) => {
@@ -348,7 +353,7 @@ export function DefectListPage() {
         <BulkEditBar
           project={p}
           selectedCount={selected.length}
-          matchingTotal={listForTotal.data?.total}
+          matchingTotal={groupBy ? groupTotal.data?.total : listForTotal.data?.total}
           allMatching={allMatching}
           onSelectAllMatching={() => setAllMatching(true)}
           onClear={() => {

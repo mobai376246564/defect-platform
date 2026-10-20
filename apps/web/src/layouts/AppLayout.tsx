@@ -26,16 +26,22 @@ import {
   Layout,
   Menu,
   Select,
+  Spin,
   Tooltip,
   type MenuProps,
 } from 'antd';
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { Suspense, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { useProjects, useTodos, useUnreadCount } from '../api/hooks';
+import {
+  usePendingUserCount,
+  useProject,
+  useProjects,
+  useTodos,
+  useUnreadCount,
+} from '../api/hooks';
 import { useAuth } from '../auth/AuthContext';
 import { BrandLogo } from '../components/BrandLogo';
 import { UpdateBanner } from '../components/UpdateBanner';
-import { usePendingUserCount } from '../pages/UsersPage';
 import { CHROME, HEADER_H, themeConfig, useThemeMode } from '../theme/theme';
 import { menuSection } from './section';
 
@@ -148,6 +154,9 @@ export function AppLayout() {
       ),
     },
   ];
+  // 项目设置只对项目管理员（含系统管理员）显示
+  const projectDetail = useProject(projectKey ?? '', !!projectKey);
+  const canConfigure = projectDetail.data?.myRole === 'admin';
   const projectItems: MenuProps['items'] = projectKey
     ? [
         {
@@ -165,11 +174,15 @@ export function AppLayout() {
           icon: chip(<PieChartOutlined />, '#06b6d4'),
           label: <Link to={`/p/${projectKey}/reports`}>统计报表</Link>,
         },
-        {
-          key: 'settings',
-          icon: chip(<SettingOutlined />, '#64748b'),
-          label: <Link to={`/p/${projectKey}/settings`}>项目设置</Link>,
-        },
+        ...(canConfigure
+          ? [
+              {
+                key: 'settings',
+                icon: chip(<SettingOutlined />, '#64748b'),
+                label: <Link to={`/p/${projectKey}/settings`}>项目设置</Link>,
+              },
+            ]
+          : []),
       ]
     : [];
   // 全局功能只有系统管理员可见，入口只放在侧边栏
@@ -296,7 +309,7 @@ export function AppLayout() {
         <Dropdown
           menu={{
             items: [
-              { key: 'me', label: '个人设置与 Claude Code 接入', onClick: () => navigate('/me') },
+              { key: 'me', label: '个人设置', onClick: () => navigate('/me') },
               { type: 'divider' },
               { key: 'logout', label: '退出登录', onClick: logout },
             ],
@@ -361,7 +374,10 @@ export function AppLayout() {
         <Content style={{ padding: mobile ? 12 : '16px 20px', minWidth: 0 }}>
           <div className="page">
             <UpdateBanner />
-            <Outlet />
+            {/* 页面按需加载：切到某个页面时才下载它的代码 */}
+            <Suspense fallback={<Spin style={{ display: 'block', margin: '96px auto' }} />}>
+              <Outlet />
+            </Suspense>
           </div>
         </Content>
       </Layout>

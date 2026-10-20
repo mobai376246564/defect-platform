@@ -50,15 +50,6 @@ interface EditValues {
 }
 
 /** 待审核注册数（导航角标）。挂在 adminUsers 下，用户列表刷新时一并失效。 */
-export function usePendingUserCount(enabled: boolean) {
-  return useQuery({
-    queryKey: [...qk.adminUsers, 'pending-count'],
-    queryFn: () => api<{ count: number }>('/admin/users/pending-count'),
-    enabled,
-    refetchInterval: 60_000,
-  });
-}
-
 function StatusTag({ u }: { u: AdminUser }) {
   if (u.status === 'pending') return <Tag color="orange">{USER_STATUS.pending}</Tag>;
   if (u.status === 'rejected') return <Tag>{USER_STATUS.rejected}</Tag>;

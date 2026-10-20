@@ -1,6 +1,6 @@
 import { ExportOutlined } from '@ant-design/icons';
 import { Button, Drawer, Grid, Tooltip } from 'antd';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { DefectPanel } from '../pages/defects/DefectDetailPage';
 
@@ -66,17 +66,20 @@ export function DefectDrawer({ code, onClose }: { code?: string; onClose: () => 
   const projectKey = code ? projectKeyOf(code) : '';
 
   // 没有遮罩，点抽屉外的地方（列表空白处等）自动关闭；字段修改都是即时保存的，评论草稿会保留
+  // onClose 每次渲染都是新函数：放进 ref，全局监听只在抽屉打开 / 关闭时绑定一次
+  const close = useRef(onClose);
+  close.current = onClose;
   useEffect(() => {
     if (!code) return;
     const onDown = (e: MouseEvent) => {
       const target = e.target as Element | null;
       if (e.button !== 0 || !target?.isConnected || target.closest(KEEP_OPEN)) return;
-      onClose();
+      close.current();
     };
     // Esc 关闭抽屉；抽屉里有展开的下拉框、弹窗或图片预览时，Esc 只关它们
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || document.querySelector(POPUP_OPEN)) return;
-      onClose();
+      close.current();
     };
     // 捕获阶段：下拉选项点击后会立即从页面移除，冒泡阶段就判断不出它属于抽屉了；
     // Esc 也要在下拉框自己收起之前判断
@@ -86,7 +89,7 @@ export function DefectDrawer({ code, onClose }: { code?: string; onClose: () => 
       document.removeEventListener('mousedown', onDown, true);
       document.removeEventListener('keydown', onKey, true);
     };
-  }, [code, onClose]);
+  }, [code]);
 
   return (
     <Drawer

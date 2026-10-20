@@ -103,8 +103,15 @@ export function TodoPage() {
   const filterKey = JSON.stringify({ ...base, groupBy });
   useEffect(() => setSelectedRows([]), [filterKey]);
 
-  // 行内编辑需要各项目的成员、模块与工作流；我所在的项目通常不多，一次取齐
-  const keys = (projects.data ?? []).map((p) => p.key);
+  // 行内编辑需要各项目的成员、模块与工作流：只取“有指派给我的缺陷”的项目
+  // （按项目分组计数一次就知道是哪些），而不是我能看到的全部项目
+  const withTodos = useTodoGroups({ ...base, groupBy: 'project' }, true);
+  const keys = [
+    ...new Set([
+      ...(withTodos.data?.groups.map((g) => g.value) ?? []),
+      ...selectedRows.map((r) => r.project?.key).filter((k): k is string => !!k),
+    ]),
+  ];
   const details = useQueries({
     queries: keys.map((k) => ({
       queryKey: qk.project(k),
@@ -302,7 +309,7 @@ export function TodoPage() {
           {...shared}
           rows={todos.data?.items ?? []}
           total={todos.data?.total ?? 0}
-          loading={todos.isFetching}
+          loading={todos.isPending || (todos.isFetching && todos.isPlaceholderData)}
           error={todos.isError ? todos.error.message : undefined}
           projectOf={(row) => (row.project ? projectMap.get(row.project.key) : undefined)}
           showProject
@@ -378,7 +385,7 @@ function TodoGroupTable({
       compact
       rows={todos.data?.items ?? []}
       total={todos.data?.total ?? 0}
-      loading={todos.isFetching}
+      loading={todos.isPending || (todos.isFetching && todos.isPlaceholderData)}
       error={todos.isError ? todos.error.message : undefined}
       projectOf={(row) => (row.project ? shared.projectMap.get(row.project.key) : undefined)}
       showProject={groupBy !== 'project'}

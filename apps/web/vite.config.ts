@@ -28,14 +28,25 @@ export default defineConfig({
   preview: { proxy: apiProxy },
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    // 生成 sourcemap 但不在 js 里引用（排查线上问题时可用），nginx 也不对外提供 .map 文件
+    sourcemap: 'hidden',
     chunkSizeWarningLimit: 1500,
     rollupOptions: {
       output: {
-        // 第三方库单独打包，业务代码更新时浏览器可继续使用缓存
-        manualChunks: {
-          react: ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query'],
-          antd: ['antd', '@ant-design/icons', 'dayjs'],
+        // 第三方库单独打包，业务代码更新时浏览器可继续使用缓存；
+        // 图表库只有报表页用，单独一个包，按需加载
+        manualChunks(id) {
+          if (!id.includes('/node_modules/')) return undefined;
+          if (/\/node_modules\/(echarts|zrender)\//.test(id)) return 'echarts';
+          if (
+            /\/node_modules\/(react|react-dom|scheduler|react-router|react-router-dom|@tanstack)\//.test(
+              id,
+            )
+          )
+            return 'react';
+          if (/\/node_modules\/(antd|@ant-design|rc-[^/]+|@rc-component|dayjs)\//.test(id))
+            return 'antd';
+          return undefined;
         },
       },
     },

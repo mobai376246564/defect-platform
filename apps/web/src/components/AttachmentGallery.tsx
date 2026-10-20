@@ -39,13 +39,15 @@ export function AttachmentGallery({
   const urls = useQueries({
     queries: attachments.map((a) => ({
       queryKey: ['attachment-url', a.id],
-      queryFn: () => api<{ url: string }>(`/projects/${projectKey}/attachments/${a.id}/url`),
+      queryFn: () =>
+        api<{ url: string; thumbUrl?: string }>(`/projects/${projectKey}/attachments/${a.id}/url`),
       staleTime: 8 * 60_000,
     })),
   });
   if (attachments.length === 0)
     return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有附件" />;
   const urlOf = (i: number) => urls[i]?.data?.url;
+  const thumbOf = (i: number) => urls[i]?.data?.thumbUrl ?? urlOf(i);
 
   return (
     <>
@@ -61,13 +63,15 @@ export function AttachmentGallery({
               <div key={a.id} className="attach-item">
                 <div className="attach-thumb">
                   {a.kind === 'image' ? (
+                    // 列表里显示服务端生成的小缩略图，点开预览时才加载原图
                     <Image
-                      src={url}
+                      src={thumbOf(i)}
                       alt={a.fileName}
                       width={40}
                       height={40}
+                      loading="lazy"
                       style={{ objectFit: 'cover' }}
-                      preview={{ mask: '查看' }}
+                      preview={{ mask: '查看', src: url }}
                     />
                   ) : a.kind === 'video' ? (
                     <PlayCircleOutlined />

@@ -8,14 +8,16 @@ import {
   type SortSpec,
 } from '@defect/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { App, Button, Grid, Input, Select, Space, Table, Tooltip, Typography } from 'antd';
+import { App, Button, Grid, Input, Space, Table, Tooltip, Typography } from 'antd';
 import type { ColumnsType, SortOrder } from 'antd/es/table/interface';
 import dayjs from 'dayjs';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useDefects } from '../../api/hooks';
+import { patchCachedRows } from '../../api/optimistic';
 import type { DefectRow, ProjectDetail } from '../../api/types';
+import { CellMultiSelect, CellSelect } from '../../components/CellSelect';
 import { ResizableHeaderCell, useColumnWidths } from '../../components/ResizableColumns';
 import { PriorityTag, SeverityTag, SourceTag, StatusTag } from '../../components/Tags';
 import { UserNames } from '../../components/UserNames';
@@ -103,20 +105,36 @@ export function DefectTableView({
     void qc.invalidateQueries({ queryKey: ['defects', key] });
     void qc.invalidateQueries({ queryKey: ['todos'] });
   };
+  // 行内修改先在缓存里就地改好（乐观更新），失败时回滚；完成后在后台刷新，表格不闪 loading
   const patch = useMutation({
     mutationFn: (v: { key: string; code: string; body: Record<string, unknown> }) =>
       api(`/projects/${v.key}/defects/${v.code}`, { method: 'PATCH', body: v.body }),
-    onSuccess: (_, v) => refresh(v.key),
-    onError: (e: Error) => message.error(e.message),
+    onMutate: (v) => ({
+      rollback: patchCachedRows(qc, v.key, v.code, v.body as Partial<DefectRow>),
+    }),
+    onError: (e: Error, _, c) => {
+      c?.rollback();
+      message.error(e.message);
+    },
+    onSettled: (_, __, v) => refresh(v.key),
   });
   const move = useMutation({
-    mutationFn: (v: { key: string; code: string; to: string }) =>
+    mutationFn: (v: { key: string; code: string; to: string; category?: string }) =>
       api(`/projects/${v.key}/defects/${v.code}/transitions`, {
         method: 'POST',
         body: { transition: freeTransitionKey(v.to), values: {} },
       }),
-    onSuccess: (_, v) => refresh(v.key),
-    onError: (e: Error) => message.error(e.message),
+    onMutate: (v) => ({
+      rollback: patchCachedRows(qc, v.key, v.code, {
+        status: v.to,
+        ...(v.category ? { statusCategory: v.category } : {}),
+      }),
+    }),
+    onError: (e: Error, _, c) => {
+      c?.rollback();
+      message.error(e.message);
+    },
+    onSettled: (_, __, v) => refresh(v.key),
   });
 
   /** 字段可编辑：有编辑权限；开发只能改处理中的缺陷（与服务端规则一致） */
@@ -146,18 +164,12 @@ export function DefectTableView({
     options: { value: string; label: React.ReactNode }[],
     allowClear = true,
   ) => (
-    <Select
-      size="small"
-      variant="borderless"
-      className="cell-select"
-      popupMatchSelectWidth={false}
-      value={value ?? undefined}
-      placeholder="—"
+    <CellSelect
+      value={value}
+      display={options.find((o) => o.value === value)?.label ?? '—'}
       allowClear={allowClear}
       options={options}
-      onChange={(v?: string) =>
-        patch.mutate({ key: keyOf(row, p), code: row.code, body: { [field]: v ?? null } })
-      }
+      onChange={(v) => patch.mutate({ key: keyOf(row, p), code: row.code, body: { [field]: v } })}
     />
   );
 
@@ -221,17 +233,23 @@ export function DefectTableView({
         if (!p) return s;
         if (!canMove(p)) return <StatusTag value={s} workflow={p.workflow} />;
         return (
-          <Select
-            size="small"
-            variant="borderless"
-            className="cell-select"
-            popupMatchSelectWidth={false}
+          <CellSelect
             value={s}
+            display={<StatusTag value={s} workflow={p.workflow} />}
+            allowClear={false}
             options={p.workflow.states.map((st) => ({
               value: st.key,
               label: <StatusTag value={st.key} workflow={p.workflow} />,
             }))}
-            onChange={(to: string) => move.mutate({ key: keyOf(row, p), code: row.code, to })}
+            onChange={(to) =>
+              to &&
+              move.mutate({
+                key: keyOf(row, p),
+                code: row.code,
+                to,
+                category: p.workflow.states.find((st) => st.key === to)?.category,
+              })
+            }
           />
         );
       },
@@ -293,18 +311,17 @@ export function DefectTableView({
         const p = projectOf(row);
         if (!canEdit(row, p)) return <UserNames members={p?.members ?? []} ids={ids} />;
         return (
-          <Select
-            size="small"
-            mode="multiple"
-            variant="borderless"
-            className="cell-select"
-            maxTagCount={1}
-            popupMatchSelectWidth={false}
-            placeholder="未指派"
+          <CellMultiSelect
             value={ids}
-            optionFilterProp="label"
-            options={p!.members.map((m) => ({ value: m.id, label: m.name }))}
-            onChange={(v: string[]) =>
+            display={
+              ids.length ? (
+                <UserNames members={p!.members} ids={ids} />
+              ) : (
+                <span className="cell-placeholder">未指派</span>
+              )
+            }
+            options={p!.members.map((m) => ({ value: m.id, label: m.name, search: m.name }))}
+            onChange={(v) =>
               patch.mutate({ key: keyOf(row, p), code: row.code, body: { ownerIds: v } })
             }
           />
@@ -498,7 +515,8 @@ export function DefectTable({
         {...rest}
         rows={defects.data?.items ?? []}
         total={defects.data?.total ?? 0}
-        loading={defects.isFetching}
+        // 只在首次加载、或翻页 / 改筛选后还显示着旧数据时转圈；修改后的后台刷新不打断表格
+        loading={defects.isPending || (defects.isFetching && defects.isPlaceholderData)}
         error={defects.isError ? defects.error.message : undefined}
         projectOf={() => project}
       />

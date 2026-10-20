@@ -44,7 +44,12 @@ export function EChart({ option, height = 300 }: { option: EChartsOption; height
     };
   }, [mode]);
 
+  // 父组件每次渲染都会生成新的 option 对象：内容没变时不重设，避免图表清空后重播动画
+  const applied = useRef('');
   useEffect(() => {
+    const serialized = JSON.stringify(option);
+    if (serialized === applied.current) return;
+    applied.current = serialized;
     chart.current?.setOption({ backgroundColor: 'transparent', ...option }, { notMerge: true });
   }, [option]);
 

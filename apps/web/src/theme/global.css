@@ -609,6 +609,8 @@ body.col-resizing {
 
 /* ---- 顶栏品牌：流光艺术字 ---- */
 .brand {
+  /* 动画只重绘品牌区域本身，不波及顶栏其他内容 */
+  contain: paint;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -647,7 +649,7 @@ body.col-resizing {
   background-size: 300% 100%;
   background-clip: text;
   -webkit-background-clip: text;
-  filter: drop-shadow(0 0 10px rgba(99, 102, 241, 0.35));
+  /* 不加 filter: drop-shadow：它会让文字区域每一帧都重新计算阴影 */
   animation: brand-text-flow 6s linear infinite;
 }
 
@@ -665,25 +667,12 @@ body.col-resizing {
   background-size: 250% 100%;
   background-clip: text;
   -webkit-background-clip: text;
-  animation: brand-shine 3.2s ease-in-out infinite;
+  animation: brand-shine 6s ease-in-out infinite;
   pointer-events: none;
 }
 
 .brand:hover .brand-title {
   animation-duration: 2.5s;
-}
-
-@keyframes brand-flow {
-  from {
-    background-position:
-      0 0,
-      0% 50%;
-  }
-  to {
-    background-position:
-      0 0,
-      300% 50%;
-  }
 }
 
 @keyframes brand-text-flow {
@@ -695,11 +684,12 @@ body.col-resizing {
   }
 }
 
+/* 高光每 6 秒扫过一次，其余时间静止 */
 @keyframes brand-shine {
   0% {
     background-position: 150% 0;
   }
-  60%,
+  30%,
   100% {
     background-position: -100% 0;
   }
@@ -711,4 +701,146 @@ body.col-resizing {
   .brand-title::after {
     animation: none;
   }
+}
+
+/* ---- 个人设置：左侧账号与密码，右侧 Claude Code 接入指南 ---- */
+.me-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.me-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+@media (min-width: 1100px) {
+  .me-layout {
+    grid-template-columns: 340px minmax(0, 1fr);
+  }
+}
+
+.guide-section {
+  padding: 16px 0;
+  border-top: 1px solid var(--sider-border);
+}
+
+.guide-section:last-child {
+  padding-bottom: 0;
+}
+
+.guide-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.guide-step {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* 步骤逐条换行，数字列表 */
+.guide-steps {
+  margin: 0;
+  padding-left: 22px;
+}
+
+.guide-steps > li {
+  margin-bottom: 12px;
+  line-height: 1.8;
+}
+
+.guide-steps > li:last-child {
+  margin-bottom: 0;
+}
+
+.guide-sub {
+  margin: 4px 0;
+  padding-left: 18px;
+  list-style: disc;
+}
+
+/* 命令 / 配置块：等宽、可横向滚动，右上角复制按钮 */
+.cmd-block {
+  position: relative;
+  margin: 6px 0;
+  border: 1px solid var(--sider-border);
+  border-radius: 6px;
+  background: var(--code-bg);
+}
+
+.cmd-block pre {
+  margin: 0;
+  padding: 10px 40px 10px 12px;
+  overflow-x: auto;
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cmd-block .ant-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+
+/* 表格单元格的可编辑显示：平时像一个无边框下拉框，悬停时显示箭头，点击后才挂载真正的 Select */
+.cell-display {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cell-display-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cell-display-value .ant-tag {
+  margin-inline-end: 0;
+}
+
+.cell-display-arrow {
+  flex: none;
+  font-size: 10px;
+  opacity: 0;
+  color: var(--ant-color-text-quaternary, #999);
+  transition: opacity 0.15s;
+}
+
+.ant-table-row:hover .cell-display-arrow,
+.cell-display:focus-visible .cell-display-arrow {
+  opacity: 1;
+}
+
+.cell-placeholder {
+  color: var(--ant-color-text-quaternary, #999);
 }

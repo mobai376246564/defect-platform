@@ -56,19 +56,21 @@ export function useProjects() {
   return useQuery({ queryKey: qk.projects, queryFn: () => api<ProjectSummary[]>('/projects') });
 }
 
-export function useProject(key: string) {
+export function useProject(key: string, enabled = true) {
   return useQuery({
     queryKey: qk.project(key),
     queryFn: () => api<ProjectDetail>(`/projects/${key}`),
     staleTime: 60_000,
+    enabled: enabled && !!key,
   });
 }
 
-export function useDefects(key: string, query: Record<string, unknown>) {
+export function useDefects(key: string, query: Record<string, unknown>, enabled = true) {
   return useQuery({
     queryKey: qk.defects(key, query),
     queryFn: () => api<Page<DefectRow>>(`/projects/${key}/defects`, { query }),
     placeholderData: (prev) => prev,
+    enabled,
   });
 }
 
@@ -137,5 +139,15 @@ export function useTodos(query: Record<string, unknown>) {
     queryKey: ['todos', query],
     queryFn: () => api<Page<DefectRow>>('/me/todos', { query }),
     placeholderData: (prev) => prev,
+  });
+}
+
+/** 待审核的注册数（仅系统管理员），侧边栏“用户管理”旁显示 */
+export function usePendingUserCount(enabled: boolean) {
+  return useQuery({
+    queryKey: [...qk.adminUsers, 'pending-count'],
+    queryFn: () => api<{ count: number }>('/admin/users/pending-count'),
+    enabled,
+    refetchInterval: 60_000,
   });
 }
