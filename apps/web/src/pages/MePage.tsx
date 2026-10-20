@@ -21,6 +21,7 @@ import { api } from '../api/client';
 import { qk } from '../api/hooks';
 import type { ApiTokenItem } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
+import { copyText } from '../components/clipboard';
 
 interface PasswordValues {
   oldPassword: string;
@@ -73,12 +74,8 @@ export function MePage() {
   });
 
   const copy = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      message.success('已复制');
-    } catch {
-      message.info('请手动复制');
-    }
+    if (await copyText(text)) message.success('已复制');
+    else message.warning({ content: `复制失败，请手动复制：${text}`, duration: 8 });
   };
   const addCmd = (token: string) =>
     `claude mcp add --transport http defects ${mcpUrl()} --header "Authorization: Bearer ${token}"`;

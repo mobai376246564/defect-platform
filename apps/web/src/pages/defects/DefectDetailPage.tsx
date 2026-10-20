@@ -44,6 +44,7 @@ import { PriorityTag, SeverityTag, SourceTag } from '../../components/Tags';
 import { TransitionModal, type TransitionSubmit } from '../../components/TransitionModal';
 import { UserNames, userName } from '../../components/UserNames';
 import { describeHistory } from './history';
+import { copyText } from '../../components/clipboard';
 
 export function DefectDetailPage() {
   const { key = '', code = '' } = useParams();
@@ -159,12 +160,8 @@ function DefectView({
   });
 
   const copy = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      message.success('已复制');
-    } catch {
-      message.info(text);
-    }
+    if (await copyText(text)) message.success('已复制');
+    else message.warning({ content: `复制失败，请手动复制：${text}`, duration: 8 });
   };
 
   const editableSelect = (

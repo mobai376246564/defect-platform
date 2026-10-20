@@ -36,6 +36,7 @@ import type { Member, ModuleItem, ProjectDetail, VersionItem } from '../api/type
 import { userName } from '../components/UserNames';
 import { FieldSettings } from './settings/FieldSettings';
 import { WorkflowSettings } from './settings/WorkflowSettings';
+import { copyText } from '../components/clipboard';
 
 const roleOptions = PROJECT_ROLES.map((r) => ({ value: r, label: PROJECT_ROLE[r] }));
 
@@ -382,12 +383,8 @@ function IntegrationCard({
     onError: (e: Error) => message.error(e.message),
   });
   const copy = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      message.success('已复制');
-    } catch {
-      message.info('请手动复制');
-    }
+    if (await copyText(text)) message.success('已复制');
+    else message.warning({ content: `复制失败，请手动复制：${text}`, duration: 8 });
   };
 
   return (
