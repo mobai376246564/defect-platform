@@ -78,6 +78,9 @@ export function DefectPanel({
   return <DefectView project={project.data} defect={defect.data} inDrawer={inDrawer} />;
 }
 
+/** 未发出的评论草稿：关闭抽屉或切换到别的缺陷后再回来还在（刷新页面后清空） */
+const commentDrafts = new Map<string, string>();
+
 const time = (v: string | null | undefined) => (v ? dayjs(v).format('YYYY-MM-DD HH:mm') : '—');
 const label = (dict: Record<string, string>, v: string | null) => (v ? (dict[v] ?? v) : '—');
 
@@ -93,7 +96,13 @@ function DefectView({
   const { message } = App.useApp();
   const qc = useQueryClient();
   const [active, setActive] = useState<WorkflowTransition | null>(null);
-  const [comment, setComment] = useState('');
+  const draftKey = `${project.key}/${defect.code}`;
+  const [comment, setCommentState] = useState(() => commentDrafts.get(draftKey) ?? '');
+  const setComment = (v: string) => {
+    setCommentState(v);
+    if (v.trim()) commentDrafts.set(draftKey, v);
+    else commentDrafts.delete(draftKey);
+  };
   const [files, setFiles] = useState<PendingFile[]>([]);
   // 吸顶标题区的实际高度（标题换行、窄屏时会变），侧栏吸顶时据此让开
   const headerRef = useRef<HTMLDivElement>(null);

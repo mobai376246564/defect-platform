@@ -35,7 +35,7 @@ import { useProjects, useTodos, useUnreadCount } from '../api/hooks';
 import { useAuth } from '../auth/AuthContext';
 import { UpdateBanner } from '../components/UpdateBanner';
 import { usePendingUserCount } from '../pages/UsersPage';
-import { CHROME, themeConfig, useThemeMode } from '../theme/theme';
+import { CHROME, HEADER_H, themeConfig, useThemeMode } from '../theme/theme';
 import { menuSection } from './section';
 
 const { Header, Sider, Content } = Layout;
@@ -79,7 +79,7 @@ function HeaderIcon({
           aria-label={title}
           icon={icon}
           onClick={onClick}
-          style={{ color: CHROME.headerText, fontSize: 16 }}
+          style={{ color: CHROME.headerText, fontSize: 18 }}
         />
       </Badge>
     </Tooltip>
@@ -259,36 +259,9 @@ export function AppLayout() {
             onClick={() => setDrawerOpen(true)}
           />
         )}
-        <Link
-          to="/todo"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            color: CHROME.headerTextStrong,
-            fontWeight: 600,
-            fontSize: 15,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          <span
-            className="mono"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: 26,
-              height: 26,
-              border: `1px solid ${CHROME.accent}`,
-              borderRadius: 4,
-              fontSize: 11,
-              fontWeight: 700,
-              color: CHROME.headerTextStrong,
-            }}
-          >
-            DP
-          </span>
-          {!mobile && '缺陷管理平台'}
+        <Link to="/todo" className="brand">
+          <span className="brand-mark mono">DP</span>
+          {!mobile && <span className="brand-title">缺陷管理平台</span>}
         </Link>
         {projectKey && (
           // 顶栏始终是深色，切换器固定用深色主题，浅色模式下也看得清
@@ -338,7 +311,7 @@ export function AppLayout() {
             }}
           >
             <Avatar
-              size={26}
+              size={30}
               icon={<UserOutlined />}
               style={{ background: '#1f2937', color: CHROME.headerText }}
             />
@@ -356,8 +329,8 @@ export function AppLayout() {
             trigger={null}
             style={{
               position: 'sticky',
-              top: 52,
-              height: 'calc(100vh - 52px)',
+              top: HEADER_H,
+              height: `calc(100vh - ${HEADER_H}px)`,
               overflow: 'auto',
               borderInlineEnd: '1px solid var(--sider-border)',
             }}

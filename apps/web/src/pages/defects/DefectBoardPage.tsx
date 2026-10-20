@@ -243,6 +243,7 @@ function Board({ project }: { project: ProjectDetail }) {
                     >
                       <Space size={6} style={{ marginBottom: 4 }}>
                         <Link
+                          data-open-defect
                           to={`/p/${project.key}/bugs/${d.code}`}
                           onClick={(e) => {
                             if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;

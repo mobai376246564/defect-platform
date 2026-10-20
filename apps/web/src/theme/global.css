@@ -7,6 +7,7 @@ body,
 }
 
 :root {
+  --header-h: 64px;
   --mono:
     'JetBrains Mono', 'SFMono-Regular', 'Cascadia Mono', Consolas, 'Liberation Mono', Menlo,
     monospace;
@@ -18,6 +19,8 @@ body,
   --unread-bg: rgba(59, 130, 246, 0.08);
   --accent: #3b82f6;
   --sider-border: #1c232d;
+  /* 右侧详情抽屉的底色：与列表页区分开，卡片浮在上面 */
+  --drawer-bg: #121a26;
 }
 
 :root[data-theme='light'] {
@@ -29,6 +32,7 @@ body,
   --unread-bg: rgba(37, 99, 235, 0.06);
   --accent: #2563eb;
   --sider-border: #e3e7ee;
+  --drawer-bg: #e6ebf2;
 }
 
 body {
@@ -155,12 +159,12 @@ body {
 
 /* ---- 缺陷详情 ---- */
 /*
- * 标题区吸顶：停在顶栏（52px）下方，滚动时编号、标题、状态始终可见。
+ * 标题区吸顶：停在顶栏（--header-h）下方，滚动时编号、标题、状态始终可见。
  * 左右用负边距铺满内容区，背景遮住下方滚过的内容。
  */
 .defect-header {
   position: sticky;
-  top: 52px;
+  top: var(--header-h);
   z-index: 20;
   display: flex;
   flex-wrap: wrap;
@@ -218,9 +222,9 @@ body {
 /* 侧栏吸顶时让出标题区的高度（由页面按实际高度写入 --defect-header-h） */
 .defect-side {
   position: sticky;
-  top: calc(52px + var(--defect-header-h, 96px) + 16px);
+  top: calc(var(--header-h) + var(--defect-header-h, 96px) + 16px);
   /* 侧栏比屏幕高时在栏内滚动，始终完整可见 */
-  max-height: calc(100vh - 52px - var(--defect-header-h, 96px) - 32px);
+  max-height: calc(100vh - var(--header-h) - var(--defect-header-h, 96px) - 32px);
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -558,6 +562,24 @@ body.col-resizing {
   top: 0;
   margin: 0 -20px 16px;
   padding: 12px 20px;
+  background: var(--drawer-bg);
+}
+
+/* 抽屉与下层列表的区分：独立底色、左侧强调色描边和更深的投影 */
+.defect-drawer .ant-drawer-content-wrapper {
+  box-shadow:
+    -16px 0 40px rgba(0, 0, 0, 0.28),
+    -2px 0 6px rgba(0, 0, 0, 0.12);
+}
+
+.defect-drawer .ant-drawer-content {
+  background: var(--drawer-bg);
+  border-left: 3px solid var(--accent);
+}
+
+.defect-drawer .ant-drawer-header {
+  background: var(--drawer-bg);
+  border-bottom-color: var(--sider-border);
 }
 
 .in-drawer .defect-side {
@@ -583,4 +605,121 @@ body.col-resizing {
 /* 当前在抽屉里打开的缺陷所在行 */
 .ant-table-tbody > tr.row-active > td {
   background: var(--row-active-bg, rgba(59, 130, 246, 0.1));
+}
+
+/* ---- 顶栏品牌：流光艺术字 ---- */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+}
+
+/* 标志：渐变描边的圆角方块，边框颜色随流光一起流动 */
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1.5px solid transparent;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #f0f6fc;
+  background:
+    linear-gradient(#0b0f17, #0b0f17) padding-box,
+    linear-gradient(120deg, #22d3ee, #3b82f6, #a855f7, #ec4899, #22d3ee) border-box;
+  background-size:
+    100% 100%,
+    300% 100%;
+  box-shadow: 0 0 14px rgba(59, 130, 246, 0.35);
+  animation: brand-flow 6s linear infinite;
+}
+
+/* 标题：多色渐变裁切到文字上，渐变横向流动，再叠一道高光扫过 */
+.brand-title {
+  position: relative;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  line-height: 1;
+  color: transparent;
+  background: linear-gradient(
+    100deg,
+    #22d3ee 0%,
+    #3b82f6 20%,
+    #a855f7 40%,
+    #ec4899 60%,
+    #f59e0b 80%,
+    #22d3ee 100%
+  );
+  background-size: 300% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  filter: drop-shadow(0 0 10px rgba(99, 102, 241, 0.35));
+  animation: brand-text-flow 6s linear infinite;
+}
+
+.brand-title::after {
+  content: '缺陷管理平台';
+  position: absolute;
+  inset: 0;
+  color: transparent;
+  background: linear-gradient(
+    110deg,
+    transparent 35%,
+    rgba(255, 255, 255, 0.85) 50%,
+    transparent 65%
+  );
+  background-size: 250% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: brand-shine 3.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.brand:hover .brand-title {
+  animation-duration: 2.5s;
+}
+
+@keyframes brand-flow {
+  from {
+    background-position:
+      0 0,
+      0% 50%;
+  }
+  to {
+    background-position:
+      0 0,
+      300% 50%;
+  }
+}
+
+@keyframes brand-text-flow {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 300% 50%;
+  }
+}
+
+@keyframes brand-shine {
+  0% {
+    background-position: 150% 0;
+  }
+  60%,
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+/* 系统设置了“减少动态效果”时保持静止的渐变字 */
+@media (prefers-reduced-motion: reduce) {
+  .brand-mark,
+  .brand-title,
+  .brand-title::after {
+    animation: none;
+  }
 }

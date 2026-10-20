@@ -1,5 +1,6 @@
 import { ExportOutlined } from '@ant-design/icons';
 import { Button, Drawer, Grid, Tooltip } from 'antd';
+import { useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { DefectPanel } from '../pages/defects/DefectDetailPage';
 
@@ -29,14 +30,71 @@ export function useDefectDrawer() {
   return { code, open, close };
 }
 
+/**
+ * 点在这些元素里不关闭抽屉：抽屉本身、抽屉里弹出的下拉 / 弹窗 / 图片预览等（挂在 body 下），
+ * 以及列表里用来打开缺陷的编号和标题（点它们是切换到另一个缺陷）。
+ */
+const KEEP_OPEN = [
+  '.ant-drawer',
+  '.ant-select-dropdown',
+  '.ant-picker-dropdown',
+  '.ant-dropdown',
+  '.ant-popover',
+  '.ant-tooltip',
+  '.ant-modal-root',
+  '.ant-modal-wrap',
+  '.ant-message',
+  '.ant-notification',
+  '[class*="ant-image-preview"]',
+  '.ant-mentions-dropdown',
+  '[data-open-defect]',
+].join(',');
+
+/** 正在展开的弹出层：此时按 Esc 只收起它，不关闭抽屉 */
+const POPUP_OPEN = [
+  // 正在收起（带 -leave 动画类）的不算
+  '.ant-select-dropdown:not(.ant-select-dropdown-hidden):not([class*="-leave"])',
+  '.ant-mentions-dropdown:not(.ant-mentions-dropdown-hidden):not([class*="-leave"])',
+  '.ant-picker-dropdown:not(.ant-picker-dropdown-hidden):not([class*="-leave"])',
+  '.ant-dropdown:not(.ant-dropdown-hidden):not([class*="-leave"])',
+  '.ant-modal-wrap:not([style*="display: none"])',
+  '.ant-image-preview-wrap',
+].join(',');
+
 export function DefectDrawer({ code, onClose }: { code?: string; onClose: () => void }) {
   const screens = Grid.useBreakpoint();
   const projectKey = code ? projectKeyOf(code) : '';
+
+  // 没有遮罩，点抽屉外的地方（列表空白处等）自动关闭；字段修改都是即时保存的，评论草稿会保留
+  useEffect(() => {
+    if (!code) return;
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Element | null;
+      if (e.button !== 0 || !target?.isConnected || target.closest(KEEP_OPEN)) return;
+      onClose();
+    };
+    // Esc 关闭抽屉；抽屉里有展开的下拉框、弹窗或图片预览时，Esc 只关它们
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || document.querySelector(POPUP_OPEN)) return;
+      onClose();
+    };
+    // 捕获阶段：下拉选项点击后会立即从页面移除，冒泡阶段就判断不出它属于抽屉了；
+    // Esc 也要在下拉框自己收起之前判断
+    document.addEventListener('mousedown', onDown, true);
+    document.addEventListener('keydown', onKey, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown, true);
+      document.removeEventListener('keydown', onKey, true);
+    };
+  }, [code, onClose]);
+
   return (
     <Drawer
       open={!!code}
       onClose={onClose}
-      width={screens.xl ? '50%' : screens.md ? '75%' : '100%'}
+      keyboard={false}
+      width={screens.xl ? '66.6%' : screens.md ? '85%' : '100%'}
+      rootClassName="defect-drawer"
       destroyOnHidden
       // 不加遮罩：抽屉开着时仍可点列表里的其他缺陷直接切换
       mask={false}

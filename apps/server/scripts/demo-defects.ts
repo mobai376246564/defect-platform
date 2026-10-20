@@ -47,7 +47,7 @@ const TITLES = [
 ];
 const SEVERITIES: Severity[] = ['fatal', 'serious', 'normal', 'prompt', 'advice'];
 const PRIORITIES: (Priority | null)[] = ['urgent', 'high', 'medium', 'low', 'insignificant', null];
-const FREQUENCIES = ['always', 'often', 'sometimes', 'rarely'];
+const FREQUENCIES = ['always', 'random', 'never'];
 
 async function main(): Promise<void> {
   const projectKey = arg('project', 'APP').toUpperCase();

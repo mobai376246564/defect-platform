@@ -170,6 +170,7 @@ export function DefectTableView({
       render: (code: string, row) => (
         <Link
           className="defect-code"
+          data-open-defect
           to={`/p/${keyOf(row, projectOf(row))}/bugs/${code}`}
           onClick={openHandler(onOpen, code)}
         >
@@ -450,7 +451,7 @@ function EditableTitle({
   }
   return (
     <div className="cell-title">
-      <Link to={href} className="cell-title-link" onClick={onClick}>
+      <Link to={href} className="cell-title-link" data-open-defect onClick={onClick}>
         {title}
       </Link>
       {dupCount > 0 && (

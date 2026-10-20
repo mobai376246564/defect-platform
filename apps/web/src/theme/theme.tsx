@@ -16,6 +16,9 @@ export const MONO_FONT =
   "'JetBrains Mono', 'SFMono-Regular', 'Cascadia Mono', Consolas, 'Liberation Mono', Menlo, monospace";
 
 /** 两种模式共用的外框颜色：顶栏始终是深色，保持工具感 */
+/** 顶栏高度；与 global.css 里的 --header-h 保持一致 */
+export const HEADER_H = 64;
+
 export const CHROME = {
   headerBg: '#0b0f17',
   headerBorder: '#1f2733',
@@ -85,8 +88,8 @@ export function themeConfig(mode: ThemeMode): ThemeConfig {
     components: {
       Layout: {
         headerBg: CHROME.headerBg,
-        headerHeight: 52,
-        headerPadding: '0 16px',
+        headerHeight: HEADER_H,
+        headerPadding: '0 20px',
         siderBg: p.siderBg,
         bodyBg: p.layout,
       },
