@@ -33,6 +33,7 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useProjects, useTodos, useUnreadCount } from '../api/hooks';
 import { useAuth } from '../auth/AuthContext';
+import { BrandLogo } from '../components/BrandLogo';
 import { UpdateBanner } from '../components/UpdateBanner';
 import { usePendingUserCount } from '../pages/UsersPage';
 import { CHROME, HEADER_H, themeConfig, useThemeMode } from '../theme/theme';
@@ -260,7 +261,7 @@ export function AppLayout() {
           />
         )}
         <Link to="/todo" className="brand">
-          <span className="brand-mark mono">DP</span>
+          <BrandLogo className="brand-mark" size={38} />
           {!mobile && <span className="brand-title">缺陷管理平台</span>}
         </Link>
         {projectKey && (

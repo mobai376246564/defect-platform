@@ -615,26 +615,16 @@ body.col-resizing {
   white-space: nowrap;
 }
 
-/* 标志：渐变描边的圆角方块，边框颜色随流光一起流动 */
+/* 标志：紫色圆角底的小角圆脑袋，带一圈柔和的紫色光晕，悬停时轻轻抬头 */
 .brand-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border: 1.5px solid transparent;
-  border-radius: 9px;
-  font-size: 13px;
-  font-weight: 800;
-  color: #f0f6fc;
-  background:
-    linear-gradient(#0b0f17, #0b0f17) padding-box,
-    linear-gradient(120deg, #22d3ee, #3b82f6, #a855f7, #ec4899, #22d3ee) border-box;
-  background-size:
-    100% 100%,
-    300% 100%;
-  box-shadow: 0 0 14px rgba(59, 130, 246, 0.35);
-  animation: brand-flow 6s linear infinite;
+  flex: none;
+  display: block;
+  filter: drop-shadow(0 0 10px rgba(139, 92, 246, 0.45));
+  transition: transform 0.25s ease;
+}
+
+.brand:hover .brand-mark {
+  transform: translateY(-2px) rotate(-6deg);
 }
 
 /* 标题：多色渐变裁切到文字上，渐变横向流动，再叠一道高光扫过 */
@@ -717,7 +707,6 @@ body.col-resizing {
 
 /* 系统设置了“减少动态效果”时保持静止的渐变字 */
 @media (prefers-reduced-motion: reduce) {
-  .brand-mark,
   .brand-title,
   .brand-title::after {
     animation: none;
