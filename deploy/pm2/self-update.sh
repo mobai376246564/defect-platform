@@ -24,9 +24,7 @@ MIGRATE_CMD="${UPDATE_MIGRATE_CMD:-npm run db:deploy -w @defect/server}"
 RESTART_CMD="${UPDATE_RESTART_CMD:-pm2 restart ${UPDATE_PM2_APPS:-defect-server defect-web}}"
 HEALTH_URL="${UPDATE_HEALTH_URL:-http://127.0.0.1:${PORT:-3000}/api/v1/health}"
 
-mkdir -p "$DIR"
-cd "$ROOT" || exit 1
-FROM="$(git rev-parse HEAD)"
+FROM=""
 STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 json_escape() {
@@ -36,7 +34,9 @@ json_escape() {
 }
 
 # state: running / succeeded / failed
+FINISHED=0
 write_status() {
+  [ "$1" = running ] || FINISHED=1
   printf '{"state":"%s","step":"%s","message":"%s","from":"%s","to":"%s","backup":"%s","startedAt":"%s","updatedAt":"%s"}\n' \
     "$1" "$STEP" "$(json_escape "$2")" "$FROM" "$TO" "$(json_escape "$BACKUP")" "$STARTED" \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$STATUS.tmp" && mv -f "$STATUS.tmp" "$STATUS"
@@ -58,6 +58,20 @@ run() {
   echo "\$ $*"
   bash -c "$*"
 }
+
+# 脚本意外退出（语法或运行时错误）时也要写下失败状态，否则页面会一直显示“进行中”
+on_exit() {
+  local code=$?
+  if [ "$FINISHED" = 0 ]; then
+    echo "!! 更新脚本意外退出（退出码 ${code}）"
+    write_status failed "更新脚本意外退出（退出码 ${code}），请查看更新日志"
+  fi
+}
+trap on_exit EXIT
+
+mkdir -p "$DIR" || exit 1
+cd "$ROOT" || exit 1
+FROM="$(git rev-parse HEAD)"
 
 # 构建失败时回到更新前的提交并重新构建，保证下次重启用的是可运行的版本
 rollback() {
@@ -104,7 +118,7 @@ else
   BACKUP=".data/backups/defect-before-${TO:0:7}-$(date +%Y%m%d-%H%M%S).sql"
   # pg_dump 不认识 Prisma 连接串里的 ?schema= 等参数
   "$PG_DUMP_BIN" "${DATABASE_URL%%\?*}" >"$ROOT/$BACKUP" || fail "数据库备份失败"
-  echo "备份：$BACKUP（$(wc -c <"$ROOT/$BACKUP" | tr -d ' ') 字节）"
+  echo "备份：${BACKUP}（$(wc -c <"$ROOT/$BACKUP" | tr -d ' ') 字节）"
 fi
 
 step merge "合并新版本 ${TO:0:7}"
