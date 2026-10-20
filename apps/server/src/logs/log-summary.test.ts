@@ -63,6 +63,54 @@ describe('summarizeLogs', () => {
     expect(summary.split('末尾')[0]).not.toContain('Start proc');
   });
 
+  it('reads "time|level|message" client logs by their level field', () => {
+    const unityLog = [
+      ' 17:33:56.418|L|[GameStart] 开始',
+      '17:33:59.098|W|[xasset] <Error> Initialize with: Success .',
+      '17:34:01.677|E|Object reference not set to an instance of an object.',
+      '17:34:02.000|L|获取配置信息 {"result":0,',
+      '  "data": {"error": "not an error line"}',
+      '}',
+      '17:34:11.675|E|图片加载失败: URL=https://cdn.example.com/a/105.png?x=1, error:404 Not Found',
+      '17:36:03.943|E|图片加载失败: URL=https://cdn.example.com/b/1.png, error:404 Not Found',
+      '17:40:00.000|E|NullReferenceException: Object reference not set to an instance of an object',
+      '  at Game.UI.ShopPanel.Refresh () [0x00012] in <a1b2c3>:0',
+      '  at Game.UI.ShopPanel.OnEnable () [0x00000] in <a1b2c3>:0',
+      `17:41:00.000|L|${'x'.repeat(2000)}`,
+    ].join('\n');
+    const { summary, exception } = summarizeLogs([{ name: 'game.log', text: unityLog }]);
+    const errors = summary.split('末尾')[0]!;
+    // W 级别里的 “<Error>” 和 JSON 续行里的 error 字样都不算错误
+    expect(errors).not.toContain('Initialize with');
+    expect(errors).not.toContain('not an error line');
+    expect(errors).toContain('Object reference not set');
+    // 只有图片地址不同的错误合并为一种
+    expect(summary).toContain('以下错误共出现 2 次');
+    // 错误后面没有时间前缀的续行（C# 堆栈）归入同一段，并用于去重指纹
+    expect(errors).toContain('at Game.UI.ShopPanel.Refresh ()');
+    expect(exception).toEqual({
+      type: 'NullReferenceException',
+      frames: [
+        'at Game.UI.ShopPanel.Refresh () [0x00012] in <a1b2c3>:0',
+        'at Game.UI.ShopPanel.OnEnable () [0x00000] in <a1b2c3>:0',
+      ],
+    });
+    // 超长行截断显示
+    expect(summary).toContain('…（共 2015 字）');
+  });
+
+  it('does not fingerprint a bare exception message without a stack', () => {
+    const log = [
+      '17:33:56.418|L|start',
+      '17:34:01.677|E|Object reference not set to an instance of an object.',
+      '17:34:02.000|L|next',
+    ].join('\n');
+    const { summary, exception } = summarizeLogs([{ name: 'game.log', text: log }]);
+    expect(summary).toContain('Object reference not set');
+    // 每次启动都可能出现的同一句空引用，不能用它把不同反馈合并成一个缺陷
+    expect(exception).toBeUndefined();
+  });
+
   it('truncates to the requested size, keeping the end', () => {
     // 用字母区分每条错误，避免被当作重复错误合并
     const word = (i: number) => i.toString(26).replace(/\d/g, (d) => 'qrstuvwxyz'[Number(d)]!);

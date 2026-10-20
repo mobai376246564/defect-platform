@@ -265,6 +265,14 @@ describe('defect lifecycle (e2e)', () => {
     const dl = new URL(link.body.url);
     const file = await ctx.http.get(dl.pathname + dl.search).expect(200);
     expect(file.text ?? file.body.toString()).toBe('hello world');
+    expect(file.headers['accept-ranges']).toBe('bytes');
+    // 按范围读取（视频拖动进度依赖它）
+    const part = await ctx.http
+      .get(dl.pathname + dl.search)
+      .set('Range', 'bytes=6-10')
+      .expect(206);
+    expect(part.headers['content-range']).toBe('bytes 6-10/11');
+    expect(part.text ?? part.body.toString()).toBe('world');
     // 篡改签名
     await ctx.http.get(dl.pathname + dl.search.replace(/sig=\w/, 'sig=0')).expect(403);
   });

@@ -239,4 +239,28 @@ describe('bulk edit and my to-dos (e2e)', () => {
       .expect(200);
     expect(inGroup.body.total).toBe(2);
   });
+
+  it('never loses a status change when several people move a defect at once', async () => {
+    const code = await create(keyA, { title: '并发流转' });
+    const targets = ['in_progress', 'to_verify', 'passed', 'not_bug', 'reopened'];
+    const results = await Promise.all(
+      targets.map((to) =>
+        ctx.http
+          .post(`/api/v1/projects/${keyA}/defects/${code}/transitions`)
+          .set(auth(admin.token))
+          .send({ transition: `to_${to}`, values: {} }),
+      ),
+    );
+    // 同时提交时，基于过期状态的一方得到 409，而不是悄悄覆盖
+    for (const r of results) expect([200, 409]).toContain(r.status);
+    const ok = results.filter((r) => r.status === 200).length;
+    expect(ok).toBeGreaterThanOrEqual(1);
+    const d = await detail(keyA, code);
+    const statusHistory = (d.history as { field: string; newValue: string }[]).filter(
+      (h) => h.field === 'status',
+    );
+    // 每次成功的流转都留下一条历史，最终状态就是最后一条历史的新值
+    expect(statusHistory).toHaveLength(ok);
+    expect(statusHistory[0]!.newValue).toBe(d.status);
+  });
 });

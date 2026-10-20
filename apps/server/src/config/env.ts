@@ -13,6 +13,12 @@ const envSchema = z
     WEB_ORIGIN: z.string().default('http://localhost:5173'),
 
     DATABASE_URL: z.string().min(1),
+    /** 数据库连接池大小与单条 SQL 的超时（毫秒），防止慢查询长时间占住连接 */
+    DB_POOL_MAX: z.coerce.number().int().min(1).default(10),
+    DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().min(0).default(30_000),
+    /** 每个 IP 每分钟的请求上限（全局兜底）与登录 / 注册的上限；测试环境不限流 */
+    RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(600),
+    AUTH_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(10),
 
     JWT_SECRET: z.string().min(16, 'JWT_SECRET 至少 16 位'),
     JWT_EXPIRES_IN: z.string().default('12h'),

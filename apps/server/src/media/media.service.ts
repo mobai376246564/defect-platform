@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { JobsService } from '../jobs/jobs.service';
@@ -45,7 +45,8 @@ export class MediaService {
     const dir = await mkdtemp(path.join(tmpdir(), 'defect-frames-'));
     try {
       const input = path.join(dir, `input${path.extname(attachment.fileName) || '.mp4'}`);
-      await writeFile(input, await this.storage.getObject(attachment.storageKey));
+      // 流式下载到临时文件，不把最大 300 MB 的录屏整个读进内存
+      await this.storage.downloadToFile(attachment.storageKey, input);
       const duration = await probeDurationSec(input);
       const plan = planFrameTimes(duration, attachment.markedAtMs);
       let saved = 0;

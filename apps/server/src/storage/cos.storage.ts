@@ -1,3 +1,4 @@
+import { createWriteStream } from 'node:fs';
 import COS from 'cos-nodejs-sdk-v5';
 import STS from 'qcloud-cos-sts';
 import {
@@ -33,6 +34,11 @@ export class CosStorage implements ObjectStorage {
     return res.Body;
   }
 
+  async downloadToFile(key: string, dest: string): Promise<void> {
+    // SDK 的 Output 参数把响应流直接写入文件
+    await this.cos.getObject({ ...this.base(key), Output: createWriteStream(dest) });
+  }
+
   async headObject(key: string): Promise<StoredObject | null> {
     try {
       const res = await this.cos.headObject(this.base(key));
@@ -51,9 +57,21 @@ export class CosStorage implements ObjectStorage {
     await this.cos.putObject({ ...this.base(key), Body: body, ContentType: contentType });
   }
 
+  async deleteObjects(keys: string[]): Promise<void> {
+    // 批量删除接口一次最多 1000 个
+    for (let i = 0; i < keys.length; i += 1000) {
+      await this.cos.deleteMultipleObject({
+        Bucket: this.cfg.bucket,
+        Region: this.cfg.region,
+        Objects: keys.slice(i, i + 1000).map((k) => ({ Key: assertSafeKey(k) })),
+        Quiet: true,
+      });
+    }
+  }
+
   async listKeys(
     prefix: string,
-    opts: { suffix?: string; limit?: number } = {},
+    opts: { suffix?: string; limit?: number; olderThan?: Date } = {},
   ): Promise<string[]> {
     const out: string[] = [];
     let marker: string | undefined;
@@ -66,7 +84,8 @@ export class CosStorage implements ObjectStorage {
         MaxKeys: 1000,
       });
       for (const obj of res.Contents ?? []) {
-        if (!opts.suffix || obj.Key.endsWith(opts.suffix)) out.push(obj.Key);
+        const old = !opts.olderThan || new Date(obj.LastModified) < opts.olderThan;
+        if (old && (!opts.suffix || obj.Key.endsWith(opts.suffix))) out.push(obj.Key);
         if (opts.limit && out.length >= opts.limit) return out;
       }
       const page = res as unknown as { IsTruncated?: string; NextMarker?: string };

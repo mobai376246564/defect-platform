@@ -9,6 +9,7 @@ import {
   Post,
 } from '@nestjs/common';
 import { POSITIONS } from '@defect/shared';
+import { Throttle } from '@nestjs/throttler';
 import { z } from 'zod';
 import { CurrentUser, Public, type AuthUser } from '../common/auth-user';
 import { ZodPipe } from '../common/zod.pipe';
@@ -44,11 +45,15 @@ const createTokenSchema = z.object({
   expiresInDays: z.number().int().min(1).max(365).optional(),
 });
 
+/** 登录、注册每个 IP 每分钟的次数上限（防撞库、刷注册）；装饰器在启动时求值，所以直接读环境变量 */
+const authLimit = () => Number(process.env.AUTH_RATE_LIMIT_PER_MINUTE ?? 10) || 10;
+
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Public()
+  @Throttle({ default: { limit: authLimit, ttl: 60_000 } })
   @Post('login')
   @HttpCode(200)
   login(@Body(new ZodPipe(loginSchema)) body: z.infer<typeof loginSchema>) {
@@ -57,6 +62,7 @@ export class AuthController {
 
   /** 自助注册，账号需系统管理员审核通过后才能登录。 */
   @Public()
+  @Throttle({ default: { limit: authLimit, ttl: 60_000 } })
   @Post('register')
   register(@Body(new ZodPipe(registerSchema)) body: z.infer<typeof registerSchema>) {
     return this.auth.register(body);

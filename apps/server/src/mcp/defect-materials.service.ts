@@ -7,6 +7,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { OBJECT_STORAGE, type ObjectStorage } from '../storage/storage.types';
 
 const MAX_LOG_BYTES = 50 * 1024 * 1024;
+/** 日志缓存的内存预算（按字符数估算，含拆分后的行数组），超出时淘汰最久没用的 */
+const LOG_CACHE_BUDGET = 256 * 1024 * 1024;
+const costOf = (files: LogFile[]) => files.reduce((n, f) => n + f.text.length * 4, 0);
 
 /**
  * 把缺陷材料整理成适合模型阅读的形态：文本概览、压缩后的图片、可检索的日志。
@@ -16,6 +19,7 @@ const MAX_LOG_BYTES = 50 * 1024 * 1024;
 export class DefectMaterialsService {
   /** 最近读取过的日志，避免一次排查中反复下载同一个日志包 */
   private readonly logCache = new Map<string, LogFile[]>();
+  private logCacheCost = 0;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -118,10 +122,13 @@ export class DefectMaterialsService {
         continue;
       }
       let cached = this.logCache.get(a.id);
-      if (!cached) {
-        cached = await readLogArchive(a.fileName, await this.storage.getObject(a.storageKey));
+      if (cached) {
+        // 刷新为最近使用
+        this.logCache.delete(a.id);
         this.logCache.set(a.id, cached);
-        if (this.logCache.size > 8) this.logCache.delete(this.logCache.keys().next().value!);
+      } else {
+        cached = await readLogArchive(a.fileName, await this.storage.getObject(a.storageKey));
+        this.remember(a.id, cached);
       }
       // 普通日志直接用附件名；zip 内的文件用“附件名/内部路径”
       files.push(
@@ -132,6 +139,19 @@ export class DefectMaterialsService {
       );
     }
     return files;
+  }
+
+  /** 按内存预算缓存：放入后淘汰最久没用的，直到总量回到预算内；单个超过预算的不缓存 */
+  private remember(id: string, files: LogFile[]): void {
+    const cost = costOf(files);
+    if (cost > LOG_CACHE_BUDGET) return;
+    this.logCache.set(id, files);
+    this.logCacheCost += cost;
+    for (const [key, value] of this.logCache) {
+      if (this.logCacheCost <= LOG_CACHE_BUDGET) break;
+      this.logCache.delete(key);
+      this.logCacheCost -= costOf(value);
+    }
   }
 
   presign(a: Attachment, expiresSec = 600): Promise<string> {

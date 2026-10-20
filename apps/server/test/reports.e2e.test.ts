@@ -160,6 +160,7 @@ describe('reports (e2e)', () => {
         userId: dev.id,
         tool: 'get_defect',
         defectId: d2.id,
+        projectId: d2.projectId,
         createdAt: new Date('2026-10-17T00:00:00Z'),
       },
     });

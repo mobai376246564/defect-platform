@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { feedbackPrefix } from '@defect/shared';
+import { feedbackPrefix } from '@defect/shared/manifest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { hmacSha256Hex } from '../src/common/crypto';
 import { JobsService } from '../src/jobs/jobs.service';
@@ -163,6 +163,69 @@ describe('APP feedback ingest (e2e)', () => {
       .expect(200);
     expect(after.body.dupCount).toBe(1);
     expect(after.body.attachments).toHaveLength(2);
+  });
+
+  /** 不同测试用不同的异常，指纹互不相同 */
+  const crashLog = (exception: string) => CRASH_LOG.replace('IllegalStateException', exception);
+
+  /** 发送事件让服务端登记这条反馈（不处理），返回 reportId */
+  async function register(title: string, log: string): Promise<string> {
+    const fb = writeFeedback({ title, log });
+    const s = signed({ key: fb.key });
+    await ctx.http.post('/api/v1/ingest/cos-event').set(s.headers).send(s.raw).expect(200);
+    return fb.reportId;
+  }
+
+  async function defectOf(reportId: string) {
+    const prisma = ctx.app.get(PrismaService);
+    const report = await prisma.feedbackReport.findUniqueOrThrow({ where: { reportId } });
+    return prisma.defect.findUniqueOrThrow({
+      where: { id: report.defectId! },
+      include: { attachments: true, comments: true },
+    });
+  }
+
+  it('keeps attachments of only the first few duplicates and then just counts', async () => {
+    const ingest = ctx.app.get(IngestService);
+    const log = crashLog('DuplicateLimitException');
+    const first = await register('首次', log);
+    await ingest.process(first);
+    for (let i = 0; i < 5; i++) await ingest.process(await register(`重复 ${i}`, log));
+    await ctx.app.get(JobsService).drain();
+
+    const defect = await defectOf(first);
+    expect(defect.dupCount).toBe(5);
+    // 首次 1 份 + 前 3 条重复各 1 份，之后的只计数
+    expect(defect.attachments).toHaveLength(4);
+    expect(defect.comments.filter((c) => c.via === 'system')).toHaveLength(3);
+  });
+
+  it('does not create a second defect when a retried job finds one already created', async () => {
+    const ingest = ctx.app.get(IngestService);
+    const prisma = ctx.app.get(PrismaService);
+    const reportId = await register('重试', crashLog('RetryException'));
+    await ingest.process(reportId);
+    const before = await prisma.defect.count({ where: { project: { key } } });
+    // 模拟上次处理时缺陷已建好，但之后的步骤失败、任务被重试
+    await prisma.feedbackReport.update({ where: { reportId }, data: { status: 'pending' } });
+    await ingest.process(reportId);
+    expect(await prisma.defect.count({ where: { project: { key } } })).toBe(before);
+    expect((await defectOf(reportId)).attachments).toHaveLength(1);
+    expect((await prisma.feedbackReport.findUniqueOrThrow({ where: { reportId } })).status).toBe(
+      'created',
+    );
+  });
+
+  it('creates only one defect when the same crash arrives concurrently', async () => {
+    const ingest = ctx.app.get(IngestService);
+    const prisma = ctx.app.get(PrismaService);
+    const log = crashLog('ConcurrentException');
+    const ids = await Promise.all([1, 2, 3].map((i) => register(`并发 ${i}`, log)));
+    await Promise.all(ids.map((id) => ingest.process(id)));
+    const reports = await prisma.feedbackReport.findMany({ where: { reportId: { in: ids } } });
+    expect(new Set(reports.map((r) => r.defectId)).size).toBe(1);
+    expect(reports.map((r) => r.status).sort()).toEqual(['created', 'merged', 'merged']);
+    expect((await defectOf(ids[0]!)).dupCount).toBe(2);
   });
 
   it('reconciles manifests whose events were lost', async () => {

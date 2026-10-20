@@ -16,13 +16,23 @@
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
       }
+    },
+    "./manifest": {
+      "import": {
+        "types": "./dist/manifest.d.mts",
+        "default": "./dist/manifest.mjs"
+      },
+      "require": {
+        "types": "./dist/manifest.d.ts",
+        "default": "./dist/manifest.js"
+      }
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format esm,cjs --dts --clean",
+    "build": "tsup src/index.ts src/manifest.ts --format esm,cjs --dts --clean",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -32,5 +42,6 @@
   "devDependencies": {
     "tsup": "^8.5.0",
     "vitest": "^3.2.4"
-  }
+  },
+  "sideEffects": false
 }

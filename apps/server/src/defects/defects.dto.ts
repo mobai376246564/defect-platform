@@ -160,7 +160,7 @@ export const listQuerySchema = z.object({
   /** 分组浏览时只看某一组：groupField=severity&groupValue=fatal，空值组用 __none__ */
   groupField: groupFieldSchema.optional(),
   groupValue: z.string().max(100).optional(),
-  page: z.coerce.number().int().min(1).default(1),
+  page: z.coerce.number().int().min(1).max(10_000).default(1),
   /** 看板一次最多取 200 条（与批量操作上限一致） */
   pageSize: z.coerce.number().int().min(1).max(200).default(20),
 });
@@ -208,7 +208,7 @@ export const todoQuerySchema = z.object({
   priority: multi(prioritySchema),
   sort: z.string().max(200).optional(),
   order: z.enum(['asc', 'desc']).optional(),
-  page: z.coerce.number().int().min(1).default(1),
+  page: z.coerce.number().int().min(1).max(10_000).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(20),
   groupField: keysOf(TODO_GROUP_FIELDS).optional(),
   groupValue: z.string().max(100).optional(),

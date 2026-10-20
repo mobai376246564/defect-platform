@@ -1,5 +1,5 @@
 import { sha256Hex } from '../common/crypto';
-import type { LogFile } from './log-archive';
+import { linesOf, type LogFile } from './log-archive';
 
 /**
  * 错误行：大写级别关键字、Android logcat 的 E/F 级别（E/Tag: 与 threadtime 格式的 “ E Tag:”）、
@@ -14,14 +14,69 @@ const ERROR_LINE = new RegExp(
     String.raw`[Ff]atal error:|Terminating app due to uncaught exception|Thread \d+ Crashed`,
   ].join('|'),
 );
-const STACK_FRAME = /^\s+at\s+[\w$.<>]+\(.*\)|^\s*\d+\s+\S+\s+0x[0-9a-f]+/i;
+/**
+ * 带级别字段的行（Unity / 自研客户端常见）：“17:34:01.677|E|内容”、“[2026-10-19 17:34:01][E] 内容”。
+ * 这类日志由级别决定是否算错误：E/F 等算，L/W/I/D 不算（W 行里的“<Error>”字样不是错误）。
+ */
+const LEVELED_LINE =
+  /^\s*\[?(?:\d{4}[-/]\d{2}[-/]\d{2}[ T])?\d{2}:\d{2}:\d{2}(?:[.,]\d{1,6})?\]?\s*[|[]\s*([A-Za-z]{1,9})\s*[|\]]/;
+const ERROR_LEVEL = /^(?:E|F|A|X|ERR|ERROR|FATAL|ASSERT|EXCEPTION|CRIT|CRITICAL)$/i;
+/** 堆栈帧：Java / Kotlin、iOS，以及 C# / Unity（“at A.B () [0x0] in <x>:0”、“A.B:C (object)”、“A.B () (at Assets/x.cs:12)”） */
+const STACK_FRAME =
+  /^\s+at\s+[\w$.<>]+\(.*\)|^\s*\d+\s+\S+\s+0x[0-9a-f]+|^\s*(?:at\s+)?[\w.`<>+]+[.:][\w`<>]+\s*\([^)]*\)\s*(?:\[0x[0-9a-f]+\]|\(at\s|in\s|$)/i;
 const EXCEPTION_HEAD =
   /(?:^|\s)((?:[a-zA-Z_$][\w$]*\.)+[A-Z][\w$]*(?:Exception|Error))\b|((?:NS|Swift)\w*(?:Exception|Error))/;
-/** 行首的日期、时间、进程号等，比较两段错误是否“相同”时忽略 */
-const VOLATILE = /\d+/g;
+/** 不带命名空间的异常名（C#、Unity 常见），如 “NullReferenceException: …” */
+const BARE_EXCEPTION = /(?:^|[\s|:])([A-Z][A-Za-z]*Exception)\s*:/;
+/** .NET 只打印了消息、没打印异常名时，按消息认出异常类型 */
+const DOTNET_MESSAGES: [RegExp, string][] = [
+  [/Object reference not set to an instance of an object/i, 'NullReferenceException'],
+  [/Index was outside the bounds of the array/i, 'IndexOutOfRangeException'],
+  [/The given key .*was not present in the dictionary/i, 'KeyNotFoundException'],
+  [/(?:Specified argument|Index) was out of (?:the )?range/i, 'ArgumentOutOfRangeException'],
+  [/has been destroyed but you are still trying to access it/i, 'MissingReferenceException'],
+  [/Collection was modified; enumeration operation may not execute/i, 'InvalidOperationException'],
+];
 /** 每个文件最多列出的不同错误段数 */
 const MAX_BLOCKS = 40;
 const TAIL_LINES = 20;
+/** 带级别的日志里，错误行后最多带上的续行（JSON 包体、堆栈） */
+const MAX_CONTINUATION = 12;
+/** 摘要里单行最多显示的字符数，超长的 JSON 行不至于挤占整个摘要 */
+const MAX_LINE_CHARS = 400;
+
+const clip = (s: string) =>
+  s.length > MAX_LINE_CHARS ? `${s.slice(0, MAX_LINE_CHARS)}…（共 ${s.length} 字）` : s;
+
+/**
+ * 比较两段错误是否“相同”时忽略的部分：行首时间与级别、JSON 内容、网址、长随机 ID、数字。
+ * 例如只有图片地址不同的“图片加载失败”合并为一种。
+ */
+function normalize(s: string): string {
+  return s
+    .replace(LEVELED_LINE, '')
+    .replace(/\{.*\}/g, '{…}')
+    .replace(/https?:\/\/\S+/g, '<url>')
+    .replace(/\b[A-Za-z0-9_-]{16,}\b/g, '<id>')
+    .replace(/\d+/g, '#');
+}
+
+/** 文件是否是“带级别字段”的格式：抽样开头的非空行，三成以上符合即可（其余多为 JSON 等续行） */
+function isLeveled(lines: string[]): boolean {
+  const sample = lines.filter((l) => l.trim()).slice(0, 300);
+  return (
+    sample.length > 0 && sample.filter((l) => LEVELED_LINE.test(l)).length >= sample.length * 0.3
+  );
+}
+
+function exceptionTypeOf(line: string): { type: string; dotted: boolean } | null {
+  const head = EXCEPTION_HEAD.exec(line);
+  if (head?.[1] ?? head?.[2]) return { type: (head[1] ?? head[2])!, dotted: true };
+  const bare = BARE_EXCEPTION.exec(line);
+  if (bare?.[1]) return { type: bare[1], dotted: false };
+  const known = DOTNET_MESSAGES.find(([re]) => re.test(line));
+  return known ? { type: known[1], dotted: false } : null;
+}
 
 export interface LogSummary {
   /** 写入缺陷“日志摘要”字段的文本 */
@@ -50,37 +105,56 @@ export function summarizeLogs(files: LogFile[], maxChars = 8000): LogSummary {
   let exception: LogSummary['exception'];
 
   for (const f of files) {
-    const lines = f.text.split(/\r?\n/);
+    const lines = linesOf(f);
+    const leveled = isLeveled(lines);
+    const isError = (line: string): boolean => {
+      if (!leveled) return ERROR_LINE.test(line);
+      // 带级别的日志只看级别；没有级别前缀的是上一条的续行，不单独算
+      const m = LEVELED_LINE.exec(line);
+      return !!m && ERROR_LEVEL.test(m[1] ?? '');
+    };
     const blocks = new Map<string, ErrorBlock>();
     const picked = new Set<number>();
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i] ?? '';
-      if (!ERROR_LINE.test(line)) continue;
+      if (!isError(line)) continue;
       const block = [line];
-      const numbered = [`${i + 1}: ${line}`];
+      const numbered = [`${i + 1}: ${clip(line)}`];
       const frames: string[] = [];
       let j = i + 1;
       while (j < lines.length) {
         const next = lines[j] ?? '';
         const isFrame = STACK_FRAME.test(next);
-        if (!isFrame && !/^\s*Caused by:/.test(next) && !EXCEPTION_HEAD.test(next)) break;
+        if (leveled) {
+          // 续行：直到下一条带级别前缀的记录为止，最多带 MAX_CONTINUATION 行
+          if (LEVELED_LINE.test(next)) break;
+          if (j - i > MAX_CONTINUATION) {
+            let rest = j;
+            while (rest < lines.length && !LEVELED_LINE.test(lines[rest] ?? '')) rest++;
+            numbered.push(`…（后续 ${rest - j} 行省略）`);
+            j = rest;
+            break;
+          }
+        } else if (!isFrame && !/^\s*Caused by:/.test(next) && !EXCEPTION_HEAD.test(next)) {
+          break;
+        }
         block.push(next);
-        numbered.push(`${j + 1}: ${next}`);
+        numbered.push(`${j + 1}: ${clip(next)}`);
         if (isFrame) frames.push(next.trim());
         j++;
       }
       for (let k = i; k < j; k++) picked.add(k);
       if (!exception) {
         for (const l of block) {
-          const head = EXCEPTION_HEAD.exec(l);
-          const type = head?.[1] ?? head?.[2];
-          if (type) {
-            exception = { type, frames: frames.slice(0, 5) };
+          const found = exceptionTypeOf(l);
+          // 只认出了类型、没有堆栈时不用于去重：否则每次启动都会出现的同一个空引用，会把所有反馈合并成一个缺陷
+          if (found && (found.dotted || frames.length > 0)) {
+            exception = { type: found.type, frames: frames.slice(0, 5) };
             break;
           }
         }
       }
-      const key = block.join('\n').replace(VOLATILE, '#');
+      const key = normalize(block.join('\n'));
       const seen = blocks.get(key);
       if (seen) {
         seen.count++;
@@ -119,7 +193,7 @@ export function summarizeLogs(files: LogFile[], maxChars = 8000): LogSummary {
     if (tail.length > 0) {
       parts.push(
         `== ${f.name}：末尾 ${tail.length} 行${picked.size ? '（不含上面已列出的）' : ''} ==`,
-        ...tail.map(({ l }) => l),
+        ...tail.map(({ l }) => clip(l)),
       );
     }
   }

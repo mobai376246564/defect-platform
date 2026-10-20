@@ -1,5 +1,17 @@
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { constants } from 'node:fs';
+import {
+  copyFile,
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  stat,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import type { Readable } from 'node:stream';
@@ -28,6 +40,11 @@ export class LocalStorage implements ObjectStorage {
     this.root = path.resolve(rootDir);
   }
 
+  /** 对象在磁盘上的绝对路径（下载接口用 sendFile 直接发送，支持断点续传与拖动进度） */
+  filePath(key: string): string {
+    return this.fullPath(key);
+  }
+
   private fullPath(key: string): string {
     const p = path.resolve(this.root, assertSafeKey(key));
     if (!p.startsWith(this.root + path.sep)) throw new Error(`非法的对象 key：${key}`);
@@ -36,6 +53,11 @@ export class LocalStorage implements ObjectStorage {
 
   async getObject(key: string): Promise<Buffer> {
     return readFile(this.fullPath(key));
+  }
+
+  async downloadToFile(key: string, dest: string): Promise<void> {
+    // 支持时用写时复制（APFS / btrfs），否则普通复制
+    await copyFile(this.fullPath(key), dest, constants.COPYFILE_FICLONE);
   }
 
   createReadStream(key: string): Readable {
@@ -57,21 +79,44 @@ export class LocalStorage implements ObjectStorage {
     await writeFile(p, body);
   }
 
-  async writeStream(key: string, stream: Readable, maxBytes: number): Promise<number> {
+  /**
+   * 流式写入：先写到同目录的临时文件，完整收到（且与声明的大小一致）后再改名，
+   * 上传中断或超限时删除临时文件，不会留下被当成“已上传”的残缺文件。
+   */
+  async writeStream(
+    key: string,
+    stream: Readable,
+    maxBytes: number,
+    expectedBytes?: number,
+  ): Promise<number> {
     const p = this.fullPath(key);
     await mkdir(path.dirname(p), { recursive: true });
+    const tmp = `${p}.part-${randomBytes(4).toString('hex')}`;
     let total = 0;
     stream.on('data', (chunk: Buffer) => {
       total += chunk.length;
       if (total > maxBytes) stream.destroy(new Error('文件超过大小限制'));
     });
-    await pipeline(stream, createWriteStream(p));
-    return total;
+    try {
+      await pipeline(stream, createWriteStream(tmp));
+      if (expectedBytes && total !== expectedBytes) {
+        throw new Error(`上传不完整：收到 ${total} 字节，应为 ${expectedBytes} 字节`);
+      }
+      await rename(tmp, p);
+      return total;
+    } catch (err) {
+      await unlink(tmp).catch(() => undefined);
+      throw err;
+    }
+  }
+
+  async deleteObjects(keys: string[]): Promise<void> {
+    for (const key of keys) await rm(this.fullPath(key), { force: true });
   }
 
   async listKeys(
     prefix: string,
-    opts: { suffix?: string; limit?: number } = {},
+    opts: { suffix?: string; limit?: number; olderThan?: Date } = {},
   ): Promise<string[]> {
     const safe = assertSafeKey(prefix);
     const out: string[] = [];
@@ -87,7 +132,9 @@ export class LocalStorage implements ObjectStorage {
         if (e.isDirectory()) await walk(full);
         else {
           const key = path.relative(this.root, full).split(path.sep).join('/');
-          if (key.startsWith(safe) && (!opts.suffix || key.endsWith(opts.suffix))) out.push(key);
+          const match = key.startsWith(safe) && (!opts.suffix || key.endsWith(opts.suffix));
+          if (match && (!opts.olderThan || (await stat(full)).mtime < opts.olderThan))
+            out.push(key);
         }
         if (opts.limit && out.length >= opts.limit) return;
       }

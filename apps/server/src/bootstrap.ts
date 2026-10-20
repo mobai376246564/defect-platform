@@ -1,6 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { APP_ENV, type AppEnv } from './config/env';
+import { requestLog } from './common/request-log';
 
 export const API_PREFIX = 'api/v1';
 
@@ -16,5 +17,7 @@ export function configureApp(app: INestApplication): void {
   });
   express.disable('x-powered-by');
   express.set('trust proxy', 1);
+  // 测试里不输出访问日志，避免刷屏
+  if (env.NODE_ENV !== 'test') express.use(requestLog());
   app.enableShutdownHooks();
 }

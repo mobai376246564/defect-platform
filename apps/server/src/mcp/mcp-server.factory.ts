@@ -1,11 +1,12 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { RE2JS } from 're2js';
 import { z } from 'zod';
 import type { AuthUser } from '../common/auth-user';
 import { keywordWhere } from '../defects/defect-query';
 import { DefectsService, userActor } from '../defects/defects.service';
-import { grepLogs } from '../logs/log-archive';
+import { grepLogs, linesOf } from '../logs/log-archive';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProjectAccessService, type ProjectContext } from '../projects/project-access.service';
 import { DefectMaterialsService } from './defect-materials.service';
@@ -269,11 +270,14 @@ export class McpServerFactory {
           'grep_log',
           false,
           async () => {
-            let re: RegExp;
+            // RE2 引擎：匹配耗时与日志长度成线性，任何正则都不会把服务卡死；不支持反向引用和前后断言
+            let re: RE2JS;
             try {
-              re = new RegExp(pattern, 'i');
+              re = RE2JS.compile(pattern, RE2JS.CASE_INSENSITIVE);
             } catch {
-              return errorResult(`无效的正则：${pattern}`);
+              return errorResult(
+                `无效的正则：${pattern}（不支持反向引用和前后断言，请换成普通写法）`,
+              );
             }
             const ctx = await ctxOf(code);
             const defect = await this.materials.loadDefect(ctx.project.id, code);
@@ -323,7 +327,7 @@ export class McpServerFactory {
               return errorResult(
                 `找不到日志文件 ${file}。可用文件：${files.map((f) => f.name).join('、')}`,
               );
-            const lines = target.text.split(/\r?\n/);
+            const lines = linesOf(target);
             const end = Math.min(endLine, startLine + 399, lines.length);
             const out = [];
             for (let i = startLine; i <= end; i++) out.push(`${i}: ${lines[i - 1] ?? ''}`);
@@ -496,12 +500,22 @@ export class McpServerFactory {
   }
 
   private async audit(user: AuthUser, tool: string, code?: string): Promise<void> {
-    let defectId: string | null = null;
+    let defect: { id: string; projectId: string } | null = null;
     if (code) {
-      const d = await this.prisma.defect.findFirst({ where: { code }, select: { id: true } });
-      defectId = d?.id ?? null;
+      // 编号前缀就是项目标识：按“项目 + 编号”查，走唯一索引，而不是只按编号全表扫描
+      defect = await this.prisma.defect.findFirst({
+        where: { code, project: { key: code.slice(0, code.lastIndexOf('-')) } },
+        select: { id: true, projectId: true },
+      });
     }
-    await this.prisma.mcpAudit.create({ data: { userId: user.id, tool, defectId } });
+    await this.prisma.mcpAudit.create({
+      data: {
+        userId: user.id,
+        tool,
+        defectId: defect?.id ?? null,
+        projectId: defect?.projectId ?? null,
+      },
+    });
   }
 }
 

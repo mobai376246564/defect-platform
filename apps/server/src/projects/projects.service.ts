@@ -228,33 +228,30 @@ export class ProjectsService {
         where: { id: project.id },
         data: { workflow: workflow as unknown as Prisma.InputJsonValue },
       });
+      // 被删除状态下的缺陷迁移到指定状态：直接在数据库里写历史、改状态，不把成千上万个 id 拉到内存里拼 IN
+      const now = new Date();
       for (const o of orphans) {
         const target = states.get(remap[o.status]!)!;
-        const moved = await tx.defect.findMany({
-          where: { projectId: project.id, status: o.status, deletedAt: null },
-          select: { id: true },
-        });
-        await tx.defectHistory.createMany({
-          data: moved.map((d) => ({
-            defectId: d.id,
-            field: 'status',
-            oldValue: o.status,
-            newValue: target.key,
-            operatorId: user.id,
-            via: 'web',
-          })),
-        });
-        await tx.defect.updateMany({
-          where: { id: { in: moved.map((d) => d.id) } },
-          data: { status: target.key, statusCategory: target.category },
-        });
+        await tx.$executeRaw`
+          INSERT INTO "DefectHistory" (id, "defectId", field, "oldValue", "newValue", "operatorId", via, "createdAt")
+          SELECT gen_random_uuid(), id, 'status', to_jsonb(${o.status}::text), to_jsonb(${target.key}::text),
+                 ${user.id}::uuid, 'web', ${now}
+          FROM "Defect"
+          WHERE "projectId" = ${project.id}::uuid AND status = ${o.status} AND "deletedAt" IS NULL`;
+        await tx.$executeRaw`
+          UPDATE "Defect"
+          SET status = ${target.key}, "statusCategory" = ${target.category},
+              "statusRank" = ${stateRank(workflow, target.key)}, "updatedAt" = ${now}
+          WHERE "projectId" = ${project.id}::uuid AND status = ${o.status} AND "deletedAt" IS NULL`;
       }
-      // 状态类别、顺序可能被修改，同步冗余字段
+      // 状态类别、顺序可能被修改，同步冗余字段：只改确实变化的行，也不刷新“更新时间”
+      // （这不是对缺陷本身的修改，否则保存一次工作流，所有缺陷都会排到“最近更新”最前面）
       for (const s of workflow.states) {
-        await tx.defect.updateMany({
-          where: { projectId: project.id, status: s.key },
-          data: { statusCategory: s.category, statusRank: stateRank(workflow, s.key) },
-        });
+        const rank = stateRank(workflow, s.key);
+        await tx.$executeRaw`
+          UPDATE "Defect" SET "statusCategory" = ${s.category}, "statusRank" = ${rank}
+          WHERE "projectId" = ${project.id}::uuid AND status = ${s.key}
+            AND ("statusCategory" <> ${s.category} OR "statusRank" <> ${rank})`;
       }
     });
     return workflow;

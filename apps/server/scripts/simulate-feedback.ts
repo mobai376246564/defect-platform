@@ -11,7 +11,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { feedbackPrefix } from '@defect/shared';
+import { feedbackPrefix } from '@defect/shared/manifest';
 import sharp from 'sharp';
 import { hmacSha256Hex } from '../src/common/crypto';
 import { loadEnv } from '../src/config/env';

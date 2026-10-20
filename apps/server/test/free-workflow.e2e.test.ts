@@ -174,11 +174,16 @@ describe('free workflow and field visibility (e2e)', () => {
       .set(auth(admin.token))
       .send(DEFAULT_WORKFLOW)
       .expect(400);
+    // 保存工作流不算修改缺陷：没被迁移的缺陷“更新时间”不变
+    const untouched = await create('C');
+    const before = (await detail(untouched.code)).updatedAt;
     await ctx.http
       .put(`${base()}/workflow`)
       .set(auth(admin.token))
       .send({ ...DEFAULT_WORKFLOW, remap: { deferred: 'not_bug' } })
       .expect(200);
+    expect((await detail(untouched.code)).updatedAt).toBe(before);
+    expect(await detail(a.code)).toMatchObject({ status: 'not_bug', statusCategory: 'done' });
   });
 
   it('lets project admins choose which detail fields are shown', async () => {

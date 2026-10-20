@@ -100,13 +100,16 @@ export class ReportsService {
         snapshotOpen.set(day, (snapshotOpen.get(day) ?? 0) + open);
       }
     }
+    // 某天结束时的存量 = 此前创建的 − 此前已关闭的（当前仍是已完成状态的）。
+    // 两组时间各排一次序，每天二分查找，复杂度 O(N log N + 天数)，而不是每天把全部缺陷过滤一遍
+    const createdTimes = defects.map((d) => d.createdAt.getTime()).sort((a, b) => a - b);
+    const closedTimes = defects
+      .filter((d) => d.statusCategory === 'done' && d.closedAt)
+      .map((d) => d.closedAt!.getTime())
+      .sort((a, b) => a - b);
     const openAt = (day: string): number => {
-      const end = dayStart(addDays(day, 1));
-      return defects.filter(
-        (d) =>
-          d.createdAt < end &&
-          (d.statusCategory !== 'done' || (d.closedAt !== null && d.closedAt >= end)),
-      ).length;
+      const end = dayStart(addDays(day, 1)).getTime();
+      return countBefore(createdTimes, end) - countBefore(closedTimes, end);
     };
 
     const points = new Map<
@@ -138,26 +141,38 @@ export class ReportsService {
       f.scope === 'open'
         ? { ...s.where, statusCategory: { not: 'done' } }
         : { ...s.where, createdAt: { gte: s.start, lt: s.end } };
-    const defects = await this.prisma.defect.findMany({
-      where,
-      select: {
-        status: true,
-        severity: true,
-        moduleId: true,
-        ownerIds: true,
-        bugType: true,
-        rootCause: true,
-      },
-    });
+    // 单值字段交给数据库分组计数；处理人是数组，只取这一列在内存里展开
+    const group = async (field: 'status' | 'severity' | 'moduleId' | 'bugType' | 'rootCause') => {
+      const rows = await this.prisma.defect.groupBy({
+        by: [field],
+        where,
+        _count: { _all: true },
+      });
+      // 与 countBy 的输出一致：空值记为 ''，数量相同按 key 排序
+      return rows
+        .map((r) => ({
+          key: ((r as Record<string, unknown>)[field] as string | null) ?? '',
+          count: r._count._all,
+        }))
+        .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+    };
+    const [status, severity, module, bugType, rootCause, owners] = await Promise.all([
+      group('status'),
+      group('severity'),
+      group('moduleId'),
+      group('bugType'),
+      group('rootCause'),
+      this.prisma.defect.findMany({ where, select: { ownerIds: true } }),
+    ]);
     return {
       scope: f.scope,
-      total: defects.length,
-      status: countBy(defects, (d) => d.status),
-      severity: countBy(defects, (d) => d.severity),
-      module: countBy(defects, (d) => d.moduleId),
-      owner: countBy(defects, (d) => d.ownerIds),
-      bugType: countBy(defects, (d) => d.bugType),
-      rootCause: countBy(defects, (d) => d.rootCause),
+      total: owners.length,
+      status,
+      severity,
+      module,
+      owner: countBy(owners, (d) => d.ownerIds),
+      bugType,
+      rootCause,
     };
   }
 
@@ -222,8 +237,16 @@ export class ReportsService {
         releasedAt: v.releasedAt,
       })),
       { id: null, name: '未指定版本', releasedAt: null },
-    ].map((v) => {
-      const list = defects.filter((d) => d.versionFoundId === v.id);
+    ];
+    // 一次遍历按版本分组，而不是每个版本都把全部缺陷过滤一遍
+    const byVersion = new Map<string | null, typeof defects>();
+    for (const d of defects) {
+      const list = byVersion.get(d.versionFoundId);
+      if (list) list.push(d);
+      else byVersion.set(d.versionFoundId, [d]);
+    }
+    const result = rows.map((v) => {
+      const list = byVersion.get(v.id) ?? [];
       const released = v.releasedAt;
       return {
         versionId: v.id,
@@ -243,7 +266,7 @@ export class ReportsService {
         ) as Record<string, number>,
       };
     });
-    return { rows: rows.filter((r) => r.versionId !== null || r.total > 0) };
+    return { rows: result.filter((r) => r.versionId !== null || r.total > 0) };
   }
 
   /**
@@ -443,13 +466,6 @@ export class ReportsService {
     });
     const ids = resolved.map((d) => d.id);
     const window = { gte: s.start, lt: s.end };
-    // McpAudit 没有关联到缺陷表，先取项目内的缺陷 id 再计数（不用原生 SQL，避免时区换算出错）
-    const projectDefectIds = (
-      await this.prisma.defect.findMany({
-        where: { projectId: ctx.project.id },
-        select: { id: true },
-      })
-    ).map((d) => d.id);
     const [audits, comments, mcpCalls, claudeComments] = await Promise.all([
       ids.length
         ? this.prisma.mcpAudit.groupBy({
@@ -465,11 +481,8 @@ export class ReportsService {
             _min: { createdAt: true },
           })
         : Promise.resolve([]),
-      projectDefectIds.length
-        ? this.prisma.mcpAudit.count({
-            where: { defectId: { in: projectDefectIds }, createdAt: window },
-          })
-        : Promise.resolve(0),
+      // 审计记录冗余了项目 id，直接按 (projectId, createdAt) 索引计数
+      this.prisma.mcpAudit.count({ where: { projectId: ctx.project.id, createdAt: window } }),
       this.prisma.comment.count({
         where: { via: 'claude', createdAt: window, defect: { projectId: ctx.project.id } },
       }),
@@ -564,4 +577,16 @@ export class ReportsService {
       granularity: f.granularity,
     };
   }
+}
+
+/** 有序数组中小于 limit 的元素个数（二分查找） */
+function countBefore(sorted: number[], limit: number): number {
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (sorted[mid]! < limit) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
 }

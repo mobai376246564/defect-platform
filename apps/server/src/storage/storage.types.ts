@@ -28,10 +28,17 @@ export interface StoredObject {
 export interface ObjectStorage {
   readonly driver: 'local' | 'cos';
   getObject(key: string): Promise<Buffer>;
+  /** 把对象写到本地文件（大文件如录屏用它，不整个读进内存） */
+  downloadToFile(key: string, dest: string): Promise<void>;
   headObject(key: string): Promise<StoredObject | null>;
   putObject(key: string, body: Buffer, contentType?: string): Promise<void>;
-  /** 列出某前缀下的对象 key；suffix 用于过滤（如 manifest.json） */
-  listKeys(prefix: string, opts?: { suffix?: string; limit?: number }): Promise<string[]>;
+  /** 删除对象（不存在的忽略），清理任务用 */
+  deleteObjects(keys: string[]): Promise<void>;
+  /** 列出某前缀下的对象 key；suffix 用于过滤（如 manifest.json），olderThan 只列出在该时间之前写入的 */
+  listKeys(
+    prefix: string,
+    opts?: { suffix?: string; limit?: number; olderThan?: Date },
+  ): Promise<string[]>;
   /** 生成限时下载地址 */
   presignGet(key: string, expiresSec?: number): Promise<string>;
   /** 为某目录生成上传凭证，只允许写入该目录 */

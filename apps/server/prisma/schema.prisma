@@ -189,6 +189,19 @@ model Defect {
   @@index([projectId, statusCategory])
   @@index([projectId, fingerprint])
   @@index([ownerIds], type: Gin)
+  // 列表默认按创建时间、常按更新时间 / 状态 / 严重程度排序
+  @@index([projectId, createdAt(sort: Desc)])
+  @@index([projectId, updatedAt(sort: Desc)])
+  @@index([projectId, statusRank])
+  @@index([projectId, severityRank])
+  @@index([reporterId])
+  @@index([moduleId])
+  // 关键字模糊搜索（ILIKE '%词%'）用的 trigram 索引，需要 pg_trgm 扩展（迁移里创建）。
+  // 3 个字符以上的词能走索引；1~2 个字的中文词仍是顺序扫描，但结果正确
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "Defect_title_trgm_idx")
+  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "Defect_description_trgm_idx")
+  @@index([logSummary(ops: raw("gin_trgm_ops"))], type: Gin, map: "Defect_logSummary_trgm_idx")
+  @@index([code(ops: raw("gin_trgm_ops"))], type: Gin, map: "Defect_code_trgm_idx")
 }
 
 model Attachment {
@@ -282,6 +295,7 @@ model FeedbackReport {
   processedAt DateTime?
 
   @@index([status])
+  @@index([appId, receivedAt])
 }
 
 /// 通用后台任务队列（建单、对账、抽帧），用 SELECT ... FOR UPDATE SKIP LOCKED 取任务
@@ -308,9 +322,12 @@ model McpAudit {
   userId    String   @db.Uuid
   tool      String
   defectId  String?  @db.Uuid
+  /// 冗余缺陷所属项目，报表按项目统计 MCP 调用量时不必先取出全项目的缺陷 id
+  projectId String?  @db.Uuid
   createdAt DateTime @default(now())
 
   @@index([defectId])
+  @@index([projectId, createdAt])
 }
 
 /// 站内通知（方案 6.4 通知中心）：指派、@ 提及、状态变更

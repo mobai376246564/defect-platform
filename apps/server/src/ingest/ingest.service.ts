@@ -5,18 +5,16 @@ import {
   OnApplicationBootstrap,
   OnModuleDestroy,
 } from '@nestjs/common';
+import { attachmentKindOf, type Frequency, type Severity } from '@defect/shared';
 import {
-  attachmentKindOf,
   feedbackManifestSchema,
   feedbackPrefix,
   parseManifestKey,
   type FeedbackManifest,
-  type Frequency,
-  type Severity,
-} from '@defect/shared';
+} from '@defect/shared/manifest';
 import { APP_ENV, type AppEnv } from '../config/env';
 import { DefectsService } from '../defects/defects.service';
-import type { Prisma } from '../generated/prisma/client';
+import type { Attachment, Prisma, Project } from '../generated/prisma/client';
 import { JobsService } from '../jobs/jobs.service';
 import { readLogArchive } from '../logs/log-archive';
 import { MediaService } from '../media/media.service';
@@ -27,6 +25,15 @@ import { OBJECT_STORAGE, type ObjectStorage } from '../storage/storage.types';
 
 export const INGEST_JOB = 'feedback.ingest';
 const MAX_LOG_BYTES = 30 * 1024 * 1024;
+/** 同一个问题的前几条重复反馈保留附件与说明评论，之后只累加次数 */
+export const DUPLICATE_DETAIL_LIMIT = 3;
+
+interface PresentFile {
+  key: string;
+  name: string;
+  size: number;
+  kind: string;
+}
 
 /**
  * APP 反馈自动建单（方案 5.2）：
@@ -130,7 +137,7 @@ export class IngestService implements OnApplicationBootstrap, OnModuleDestroy {
     }
 
     // 逐个核对附件是否已上传
-    const present: { key: string; name: string; size: number; kind: string }[] = [];
+    const present: PresentFile[] = [];
     const missing: string[] = [];
     for (const a of manifest.attachments) {
       const head = await this.storage.headObject(report.storagePrefix + a.key);
@@ -146,92 +153,156 @@ export class IngestService implements OnApplicationBootstrap, OnModuleDestroy {
 
     const { summary, fingerprint } = await this.analyzeLogs(present, manifest.app.version);
 
-    // 并发安全由任务队列保证：同一 reportId 只有一个任务（dedupeKey），且 SKIP LOCKED 单消费
-    {
-      // 同一指纹且未关闭的缺陷：合并为重复反馈，不重复建单
-      const duplicate = fingerprint
-        ? await this.prisma.defect.findFirst({
-            where: {
-              projectId: project.id,
-              fingerprint,
-              statusCategory: { not: 'done' },
-              deletedAt: null,
-            },
-          })
-        : null;
-      if (duplicate) {
-        await this.prisma.defect.update({
-          where: { id: duplicate.id },
-          data: { dupCount: { increment: 1 } },
-        });
-        await this.prisma.comment.create({
-          data: {
-            defectId: duplicate.id,
-            via: 'system',
-            body: `又收到 1 条相同的 APP 反馈（reportId ${reportId}，版本 ${manifest.app.version}）：${manifest.title}`,
-          },
-        });
-        await this.attach(duplicate.id, present);
-        await this.prisma.feedbackReport.update({
-          where: { reportId },
-          data: {
-            status: 'merged',
-            defectId: duplicate.id,
-            manifest: manifest as Prisma.InputJsonValue,
-            processedAt: new Date(),
-          },
-        });
-        return;
-      }
+    // 上次处理时缺陷已建好、但后续步骤（挂附件等）失败而重试：不再重复建单，只补完剩下的步骤
+    if (report.defectId) {
+      await this.attach(report.defectId, present);
+      await this.finish(reportId, 'created', report.defectId, manifest);
+      return;
+    }
 
-      const ctx = {
-        project,
-        workflow: project.workflow as unknown as WorkflowDefinition,
-        role: 'admin' as const,
-      };
-      const defect = await this.defects.create(
-        ctx,
-        { kind: 'system' },
-        {
-          title: manifest.title,
-          description: this.describe(manifest, missing),
-          steps: manifest.context.trail?.length
-            ? `操作路径：${manifest.context.trail.join(' → ')}`
-            : '',
-          expected: '',
-          actual: '',
-          severity: severityOf(manifest),
-          frequency: frequencyOf(manifest),
+    const handled = fingerprint
+      ? // 同一指纹的反馈可能同时到达：按“项目 + 指纹”加事务级咨询锁串行查重，避免各建一单
+        await this.prisma.$transaction(
+          async (tx) => {
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${project.id}:${fingerprint}`}))`;
+            const duplicate = await tx.defect.findFirst({
+              where: {
+                projectId: project.id,
+                fingerprint,
+                statusCategory: { not: 'done' },
+                deletedAt: null,
+              },
+            });
+            if (duplicate) return this.mergeDuplicate(tx, duplicate, reportId, manifest, present);
+            await this.createDefect(
+              project,
+              reportId,
+              manifest,
+              present,
+              missing,
+              summary,
+              fingerprint,
+            );
+            return null;
+          },
+          { timeout: 60_000, maxWait: 60_000 },
+        )
+      : (await this.createDefect(project, reportId, manifest, present, missing, summary, null),
+        null);
+    // 合并时新挂的附件在事务提交后再排抽帧任务
+    if (handled?.length) await this.media.enqueueFor(handled);
+  }
+
+  /**
+   * 建单：缺陷与“这条反馈已建单”在同一个事务里提交，任务中途失败重试时不会重复建单。
+   * 挂附件放在事务外（失败重试时按 defectId 继续，已挂的不重复挂）。
+   */
+  private async createDefect(
+    project: Project,
+    reportId: string,
+    manifest: FeedbackManifest,
+    present: PresentFile[],
+    missing: string[],
+    summary: string | null,
+    fingerprint: string | null,
+  ): Promise<void> {
+    const ctx = {
+      project,
+      workflow: project.workflow as unknown as WorkflowDefinition,
+      role: 'admin' as const,
+    };
+    const defect = await this.defects.create(
+      ctx,
+      { kind: 'system' },
+      {
+        title: manifest.title,
+        description: this.describe(manifest, missing),
+        steps: manifest.context.trail?.length
+          ? `操作路径：${manifest.context.trail.join(' → ')}`
+          : '',
+        expected: '',
+        actual: '',
+        severity: severityOf(manifest),
+        frequency: frequencyOf(manifest),
+      },
+      'system',
+      {
+        source: 'app',
+        appCommit: manifest.app.commit ?? null,
+        deviceInfo: {
+          app: manifest.app,
+          device: manifest.device,
+          context: manifest.context,
+        } as Prisma.InputJsonValue,
+        logSummary: summary,
+        fingerprint,
+        onCreated: async (tx, d) => {
+          await tx.feedbackReport.update({ where: { reportId }, data: { defectId: d.id } });
         },
-        'system',
-        {
-          source: 'app',
-          appCommit: manifest.app.commit ?? null,
-          deviceInfo: {
-            app: manifest.app,
-            device: manifest.device,
-            context: manifest.context,
-          } as Prisma.InputJsonValue,
-          logSummary: summary,
-          fingerprint,
-        },
-      );
-      await this.attach(defect.id, present);
-      await this.prisma.feedbackReport.update({
-        where: { reportId },
+      },
+    );
+    await this.attach(defect.id, present);
+    await this.finish(reportId, 'created', defect.id, manifest);
+    this.logger.log(`APP 反馈 ${reportId} 已建单 ${defect.code}`);
+  }
+
+  /**
+   * 合并为重复反馈（在调用方的事务里，与“这条反馈已合并”一起提交）：累加重复次数。
+   * 前几条重复反馈保留附件和一条说明评论，便于对比；之后只计数，避免一个高频崩溃让单个缺陷的附件、评论无限增长。
+   * 每条反馈的完整 manifest 都留在 FeedbackReport 里。返回新挂的附件，提交后再排抽帧任务。
+   */
+  private async mergeDuplicate(
+    tx: Prisma.TransactionClient,
+    duplicate: { id: string; dupCount: number },
+    reportId: string,
+    manifest: FeedbackManifest,
+    present: PresentFile[],
+  ): Promise<Attachment[]> {
+    const n = duplicate.dupCount + 1;
+    await tx.defect.update({ where: { id: duplicate.id }, data: { dupCount: n } });
+    let created: Attachment[] = [];
+    if (n <= DUPLICATE_DETAIL_LIMIT) {
+      const note = n === DUPLICATE_DETAIL_LIMIT ? `；之后的相同反馈只累加次数，不再附带附件` : '';
+      await tx.comment.create({
         data: {
-          status: 'created',
-          defectId: defect.id,
-          manifest: manifest as Prisma.InputJsonValue,
-          processedAt: new Date(),
+          defectId: duplicate.id,
+          via: 'system',
+          body: `又收到 1 条相同的 APP 反馈（reportId ${reportId}，版本 ${manifest.app.version}）：${manifest.title}${note}`,
         },
       });
-      this.logger.log(`APP 反馈 ${reportId} 已建单 ${defect.code}`);
+      created = await this.createAttachments(tx, duplicate.id, present);
     }
+    await tx.feedbackReport.update({
+      where: { reportId },
+      data: {
+        status: 'merged',
+        defectId: duplicate.id,
+        manifest: manifest as Prisma.InputJsonValue,
+        processedAt: new Date(),
+      },
+    });
+    return created;
+  }
+
+  private async finish(
+    reportId: string,
+    status: 'created',
+    defectId: string,
+    manifest: FeedbackManifest,
+  ): Promise<void> {
+    await this.prisma.feedbackReport.update({
+      where: { reportId },
+      data: {
+        status,
+        defectId,
+        manifest: manifest as Prisma.InputJsonValue,
+        processedAt: new Date(),
+      },
+    });
   }
 
   private async analyzeLogs(
-    present: { key: string; name: string; size: number; kind: string }[],
+    present: PresentFile[],
     appVersion: string,
   ): Promise<{ summary: string | null; fingerprint: string | null }> {
     const logs = present.filter((p) => p.kind === 'log' && p.size <= MAX_LOG_BYTES);
@@ -248,14 +319,29 @@ export class IngestService implements OnApplicationBootstrap, OnModuleDestroy {
     return { summary: summary || null, fingerprint: fingerprintOf(exception, appVersion) };
   }
 
-  private async attach(
+  /** 挂附件并排抽帧任务；可重复调用，已挂过的文件不会重复挂 */
+  private async attach(defectId: string, present: PresentFile[]): Promise<void> {
+    const created = await this.createAttachments(this.prisma, defectId, present);
+    await this.media.enqueueFor(created);
+  }
+
+  private async createAttachments(
+    db: Prisma.TransactionClient,
     defectId: string,
-    present: { key: string; name: string; size: number }[],
-  ): Promise<void> {
-    const created = [];
-    for (const p of present) {
+    present: PresentFile[],
+  ): Promise<Attachment[]> {
+    const existing = new Set(
+      (
+        await db.attachment.findMany({
+          where: { defectId, storageKey: { in: present.map((p) => p.key) } },
+          select: { storageKey: true },
+        })
+      ).map((a) => a.storageKey),
+    );
+    const created: Attachment[] = [];
+    for (const p of present.filter((x) => !existing.has(x.key))) {
       created.push(
-        await this.prisma.attachment.create({
+        await db.attachment.create({
           data: {
             defectId,
             kind: attachmentKindOf(p.name),
@@ -266,7 +352,7 @@ export class IngestService implements OnApplicationBootstrap, OnModuleDestroy {
         }),
       );
     }
-    await this.media.enqueueFor(created);
+    return created;
   }
 
   private describe(m: FeedbackManifest, missing: string[]): string {

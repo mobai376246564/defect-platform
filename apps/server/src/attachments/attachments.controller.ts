@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { attachmentKindOf } from '@defect/shared';
 import { randomBytes } from 'node:crypto';
+import sharp from 'sharp';
 import { z } from 'zod';
 import { CurrentUser, type AuthUser } from '../common/auth-user';
 import { ZodPipe } from '../common/zod.pipe';
@@ -63,6 +64,9 @@ const registerSchema = z.object({
 });
 
 /** 网页提单的附件：先申请上传凭证直传存储，再登记到缺陷上（方案 5.4 ②，web/ 目录）。 */
+/** 超过这个大小的图片不生成缩略图（直接用原图） */
+const MAX_THUMB_SOURCE_BYTES = 30 * 1024 * 1024;
+
 @Controller('projects/:key')
 export class AttachmentsController {
   constructor(
@@ -138,6 +142,32 @@ export class AttachmentsController {
       where: { id, defect: { projectId: ctx.project.id, deletedAt: null } },
     });
     if (!attachment) throw new NotFoundException('附件不存在');
-    return { url: await this.storage.presignGet(attachment.storageKey, 600), expiresIn: 600 };
+    const thumbUrl =
+      attachment.kind === 'image'
+        ? await this.thumbUrl(attachment).catch(() => undefined)
+        : undefined;
+    return {
+      url: await this.storage.presignGet(attachment.storageKey, 600),
+      thumbUrl,
+      expiresIn: 600,
+    };
+  }
+
+  /**
+   * 图片缩略图（列表里 40×40 的小图）：第一次请求时用原图生成 160px 的 webp 并存起来，之后直接用；
+   * 列表不再下载原图，点开预览时才加载原图。生成失败时前端退回用原图。
+   */
+  private async thumbUrl(a: { id: string; storageKey: string; size: number }): Promise<string> {
+    const key = `derived/thumbs/${a.id}.webp`;
+    if (!(await this.storage.headObject(key))) {
+      if (a.size > MAX_THUMB_SOURCE_BYTES) throw new Error('原图过大，不生成缩略图');
+      const out = await sharp(await this.storage.getObject(a.storageKey))
+        .rotate()
+        .resize(160, 160, { fit: 'cover' })
+        .webp({ quality: 70 })
+        .toBuffer();
+      await this.storage.putObject(key, out, 'image/webp');
+    }
+    return this.storage.presignGet(key, 600);
   }
 }

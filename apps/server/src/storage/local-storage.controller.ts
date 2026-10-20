@@ -49,10 +49,24 @@ export class LocalStorageController {
     if (!storage.verify('get', key, exp, sig)) throw new ForbiddenException('链接无效或已过期');
     const head = await storage.headObject(key);
     if (!head) throw new NotFoundException();
-    res.setHeader('Content-Length', String(head.size));
-    res.setHeader('Cache-Control', 'private, max-age=300');
-    res.type(key.split('.').pop() ?? 'application/octet-stream');
-    storage.createReadStream(key).pipe(res);
+    // sendFile 自带 Range（视频可拖动进度）、Last-Modified / ETag 与按扩展名的 Content-Type；
+    // 读文件出错时走回调，不会因为流的 error 事件没人处理而让进程崩溃
+    await new Promise<void>((resolve) => {
+      res.sendFile(
+        storage.filePath(key),
+        {
+          acceptRanges: true,
+          lastModified: true,
+          dotfiles: 'allow',
+          cacheControl: false,
+          headers: { 'Cache-Control': 'private, max-age=300' },
+        },
+        (err?: Error) => {
+          if (err && !res.headersSent) res.status(404).end();
+          resolve();
+        },
+      );
+    });
   }
 
   @Put('*path')
@@ -67,7 +81,12 @@ export class LocalStorageController {
     if (!storage.verify('put', key, exp, sig)) throw new ForbiddenException('链接无效或已过期');
     const declared = Number(req.headers['content-length'] ?? 0);
     if (declared > MAX_UPLOAD_BYTES) throw new BadRequestException('文件超过 200 MB');
-    const size = await storage.writeStream(key, req, MAX_UPLOAD_BYTES);
+    let size: number;
+    try {
+      size = await storage.writeStream(key, req, MAX_UPLOAD_BYTES, declared || undefined);
+    } catch (err) {
+      throw new BadRequestException(`上传失败：${(err as Error).message}`);
+    }
     return { key, size };
   }
 }

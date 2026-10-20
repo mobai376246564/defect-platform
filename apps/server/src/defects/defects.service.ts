@@ -55,6 +55,8 @@ export interface SystemDefectExtras {
   deviceInfo?: Prisma.InputJsonValue;
   logSummary?: string | null;
   fingerprint?: string | null;
+  /** 在建单的同一个事务里执行（如 APP 反馈记下已建单），与缺陷一起提交或一起回滚 */
+  onCreated?: (tx: Prisma.TransactionClient, defect: Defect) => Promise<void>;
 }
 
 const TRACKED_FIELDS = [
@@ -155,6 +157,7 @@ export class DefectsService {
           via,
         },
       });
+      if (extras.onCreated) await extras.onCreated(tx, defect);
       return defect;
     });
     await this.notifyChange(ctx, actor, null, created);
@@ -200,15 +203,7 @@ export class DefectsService {
     const where = buildDefectWhere(ctx.project.id, user, { ...q, groupField: undefined });
     let groups: { value: string; count: number }[];
     if (q.groupBy === 'owner') {
-      // 一个缺陷可能有多个处理人，按人展开计数
-      const rows = await this.prisma.defect.findMany({ where, select: { ownerIds: true } });
-      const counts = new Map<string, number>();
-      for (const r of rows) {
-        for (const id of r.ownerIds.length ? r.ownerIds : [GROUP_NONE]) {
-          counts.set(id, (counts.get(id) ?? 0) + 1);
-        }
-      }
-      groups = [...counts].map(([value, count]) => ({ value, count }));
+      groups = await this.ownerGroups(ctx.project.id, where);
     } else {
       const field = q.groupBy;
       const rows = await this.prisma.defect.groupBy({
@@ -230,6 +225,45 @@ export class DefectsService {
     );
     const total = await this.prisma.defect.count({ where });
     return { groupBy: q.groupBy, total, groups };
+  }
+
+  /**
+   * 按处理人分组计数。一个缺陷可能有多个处理人，按人各计一次。
+   * 由数据库逐个成员计数（走 ownerIds 的 GIN 索引），不把全部匹配的缺陷读进内存；
+   * 只有存在“已不在项目里的处理人”时，才退回到读取处理人一列在内存里展开。
+   */
+  private async ownerGroups(
+    projectId: string,
+    where: Prisma.DefectWhereInput,
+  ): Promise<{ value: string; count: number }[]> {
+    const memberIds = (
+      await this.prisma.projectMember.findMany({ where: { projectId }, select: { userId: true } })
+    ).map((m) => m.userId);
+    const and = (extra: Prisma.DefectWhereInput) => ({ AND: [where, extra] });
+    const [perMember, none, others] = await Promise.all([
+      Promise.all(
+        memberIds.map((id) => this.prisma.defect.count({ where: and({ ownerIds: { has: id } }) })),
+      ),
+      this.prisma.defect.count({ where: and({ ownerIds: { isEmpty: true } }) }),
+      this.prisma.defect.count({
+        where: and({ ownerIds: { isEmpty: false }, NOT: { ownerIds: { hasSome: memberIds } } }),
+      }),
+    ]);
+    const counts = new Map<string, number>();
+    memberIds.forEach((id, i) => {
+      if (perMember[i]) counts.set(id, perMember[i]);
+    });
+    if (none) counts.set(GROUP_NONE, none);
+    if (others) {
+      const rows = await this.prisma.defect.findMany({
+        where: and({ NOT: { ownerIds: { hasSome: memberIds } }, ownerIds: { isEmpty: false } }),
+        select: { ownerIds: true },
+      });
+      for (const r of rows)
+        for (const id of r.ownerIds)
+          if (!memberIds.includes(id)) counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    return [...counts].map(([value, count]) => ({ value, count }));
   }
 
   async detail(ctx: ProjectContext, code: string) {
@@ -339,21 +373,25 @@ export class DefectsService {
     data.closedAt = target.category === 'done' ? now : null;
     Object.assign(data, await this.runActions(t, defect, merged, actor, ctx));
 
-    const updated = await this.applyChanges(defect, data, actorId(actor), via, {
-      field: 'status',
-      oldValue: defect.status,
-      newValue: t.to,
-    });
-    if (input.comment?.trim()) {
-      await this.prisma.comment.create({
-        data: {
-          defectId: defect.id,
-          authorId: actorId(actor),
-          via,
-          body: `【${t.label}】${input.comment.trim()}`,
-        },
-      });
-    }
+    // 乐观锁：只在状态仍是读取时的值时更新，两人同时流转时后提交的一方得到 409；流转说明与状态一起提交
+    const updated = await this.applyChanges(
+      defect,
+      data,
+      actorId(actor),
+      via,
+      { field: 'status', oldValue: defect.status, newValue: t.to },
+      {
+        expectStatus: defect.status,
+        comment: input.comment?.trim()
+          ? {
+              defectId: defect.id,
+              authorId: actorId(actor),
+              via,
+              body: `【${t.label}】${input.comment.trim()}`,
+            }
+          : undefined,
+      },
+    );
     await this.notifyChange(ctx, actor, defect, updated, { comment: input.comment });
     return updated;
   }
@@ -461,6 +499,7 @@ export class DefectsService {
     operatorId: string | null,
     via: Via,
     extra?: { field: string; oldValue: unknown; newValue: unknown },
+    opts: { expectStatus?: string; comment?: Prisma.CommentUncheckedCreateInput } = {},
   ): Promise<Defect> {
     // 等级列随严重程度、优先级同步，用于按等级排序
     if (typeof data.severity === 'string') data.severityRank = severityRank(data.severity);
@@ -491,11 +530,25 @@ export class DefectsService {
         via,
       });
     }
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.defect.update({ where: { id: defect.id }, data }),
-      this.prisma.defectHistory.createMany({ data: history }),
-    ]);
-    return updated;
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const updated = await tx.defect.update({
+          where: opts.expectStatus
+            ? { id: defect.id, status: opts.expectStatus }
+            : { id: defect.id },
+          data,
+        });
+        await tx.defectHistory.createMany({ data: history });
+        if (opts.comment) await tx.comment.create({ data: opts.comment });
+        return updated;
+      });
+    } catch (err) {
+      // 带状态条件的更新没有命中：状态已被别人改过
+      if (opts.expectStatus && (err as { code?: string }).code === 'P2025') {
+        throw new ConflictException('缺陷状态已被他人修改，请刷新后重试');
+      }
+      throw err;
+    }
   }
 
   private async runActions(

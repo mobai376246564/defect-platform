@@ -51,7 +51,9 @@ export class DefectBulkService {
     const actor = userActor(ctx, user);
     const result: BulkResult = { total: codes.length, updated: 0, failed: [] };
 
-    for (const code of codes) {
+    // 每个缺陷要做权限校验、写历史、发通知等约 10 次查询：限量并发执行，1000 条也能在网关超时前完成
+    const failed = new Map<string, string>();
+    await forEachLimit(codes, BULK_CONCURRENCY, async (code) => {
       try {
         if (Object.keys(fields).length > 0) {
           await this.defects.update(ctx, actor, code, fields as UpdateDefectInput, via);
@@ -73,9 +75,13 @@ export class DefectBulkService {
         result.updated++;
       } catch (err) {
         const message = err instanceof HttpException ? messageOf(err) : '修改失败，请稍后重试';
-        result.failed.push({ code, message });
+        failed.set(code, message);
       }
-    }
+    });
+    // 失败列表按提交的顺序列出
+    result.failed = codes
+      .filter((c) => failed.has(c))
+      .map((c) => ({ code: c, message: failed.get(c)! }));
     return result;
   }
 
@@ -205,6 +211,18 @@ function todoWhere(user: AuthUser, q: TodoQuery): Prisma.DefectWhereInput {
     );
   }
   return { AND: and };
+}
+
+/** 同时处理的缺陷数：太大会占满数据库连接池（默认 10） */
+const BULK_CONCURRENCY = 5;
+
+/** 以最多 limit 个并发依次处理 items */
+async function forEachLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<void>) {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) await fn(items[next++]!);
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
 function messageOf(err: HttpException): string {
