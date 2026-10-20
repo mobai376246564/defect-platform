@@ -1,4 +1,4 @@
-import { DeleteOutlined, InboxOutlined } from '@ant-design/icons';
+import { DeleteOutlined, InboxOutlined, UploadOutlined } from '@ant-design/icons';
 import { attachmentKindOf } from '@defect/shared';
 import { Button, InputNumber, List, Space, Tag, Typography, Upload } from 'antd';
 import type { PendingFile } from '../api/upload';
@@ -6,36 +6,50 @@ import type { PendingFile } from '../api/upload';
 const ACCEPT = '.png,.jpg,.jpeg,.webp,.gif,.mp4,.mov,.webm,.log,.txt,.zip,.gz,.json';
 const MAX_BYTES = 200 * 1024 * 1024;
 
-/** 选择要上传的截图 / 录屏 / 日志；录屏可标记“问题出现的时间点”（方案 7.3）。 */
+/**
+ * 选择要上传的截图 / 录屏 / 日志；录屏可标记“问题出现的时间点”（方案 7.3）。
+ * variant=dragger：大拖拽框（新建缺陷）；button：一个小按钮（缺陷详情里补传，不占地方）。
+ */
 export function AttachmentPicker({
   value,
   onChange,
+  variant = 'dragger',
 }: {
   value: PendingFile[];
   onChange: (files: PendingFile[]) => void;
+  variant?: 'dragger' | 'button';
 }) {
+  const props = {
+    multiple: true,
+    accept: ACCEPT,
+    showUploadList: false,
+    beforeUpload: (file: File, fileList: File[]) => {
+      // 一次多选时只在第一个文件处理整批，避免重复追加
+      if (file !== fileList[0]) return false;
+      const ok = fileList.filter((f) => f.size <= MAX_BYTES);
+      onChange([...value, ...ok.map((f) => ({ file: f }))].slice(0, 10));
+      return false;
+    },
+  };
   return (
     <div>
-      <Upload.Dragger
-        multiple
-        accept={ACCEPT}
-        showUploadList={false}
-        beforeUpload={(file, fileList) => {
-          // 一次多选时只在第一个文件处理整批，避免重复追加
-          if (file !== fileList[0]) return false;
-          const ok = fileList.filter((f) => f.size <= MAX_BYTES);
-          onChange([...value, ...ok.map((f) => ({ file: f as File }))].slice(0, 10));
-          return false;
-        }}
-      >
-        <p className="ant-upload-drag-icon">
-          <InboxOutlined />
-        </p>
-        <p className="ant-upload-text">点击或拖拽上传截图、录屏、日志</p>
-        <p className="ant-upload-hint">
-          单个文件不超过 200 MB，最多 10 个；录屏建议标记问题出现的时间点
-        </p>
-      </Upload.Dragger>
+      {variant === 'button' ? (
+        <Upload {...props}>
+          <Button size="small" icon={<UploadOutlined />}>
+            上传附件
+          </Button>
+        </Upload>
+      ) : (
+        <Upload.Dragger {...props}>
+          <p className="ant-upload-drag-icon">
+            <InboxOutlined />
+          </p>
+          <p className="ant-upload-text">点击或拖拽上传截图、录屏、日志</p>
+          <p className="ant-upload-hint">
+            单个文件不超过 200 MB，最多 10 个；录屏建议标记问题出现的时间点
+          </p>
+        </Upload.Dragger>
+      )}
       {value.length > 0 && (
         <List
           size="small"

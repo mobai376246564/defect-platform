@@ -332,12 +332,14 @@ function DefectView({ project, defect }: { project: ProjectDetail; defect: Defec
                 </Space>
               }
             >
-              {defect.attachments.length > 0 && (
+              {defect.attachments.length > 0 ? (
                 <AttachmentGallery projectKey={project.key} attachments={defect.attachments} />
+              ) : (
+                <Typography.Text type="secondary">暂无附件</Typography.Text>
               )}
               {hasPermission(project.myRole, 'defect.create') && (
-                <div style={{ marginTop: defect.attachments.length ? 16 : 0 }}>
-                  <AttachmentPicker value={files} onChange={setFiles} />
+                <div style={{ marginTop: 12 }}>
+                  <AttachmentPicker variant="button" value={files} onChange={setFiles} />
                   {files.length > 0 && (
                     <Button
                       type="primary"
