@@ -3,7 +3,9 @@ import type { z } from 'zod';
 import { CurrentUser, type AuthUser } from '../common/auth-user';
 import { ZodPipe } from '../common/zod.pipe';
 import { ProjectAccessService } from '../projects/project-access.service';
+import { DefectBulkService } from './defect-bulk.service';
 import {
+  bulkSchema,
   commentSchema,
   createDefectSchema,
   groupsQuerySchema,
@@ -11,6 +13,7 @@ import {
   listQuerySchema,
   transitionSchema,
   updateDefectSchema,
+  type BulkInput,
   type CreateDefectInput,
   type GroupsQuery,
   type LinkInput,
@@ -28,6 +31,7 @@ export class DefectsController {
   constructor(
     private readonly defects: DefectsService,
     private readonly access: ProjectAccessService,
+    private readonly bulkService: DefectBulkService,
   ) {}
 
   @Get()
@@ -38,6 +42,18 @@ export class DefectsController {
   ) {
     const ctx = await this.access.require(key, user, 'defect.view');
     return this.defects.list(ctx, user, query);
+  }
+
+  /** 批量修改勾选的缺陷，或全部筛选结果；逐个检查权限，返回成功数与失败原因 */
+  @Post('bulk')
+  @HttpCode(200)
+  async bulk(
+    @CurrentUser() user: AuthUser,
+    @Param('key') key: string,
+    @Body(new ZodPipe(bulkSchema)) body: BulkInput,
+  ) {
+    const ctx = await this.access.require(key, user, 'defect.edit');
+    return this.bulkService.bulkUpdate(ctx, user, body, viaOf(user));
   }
 
   /** 分组统计（须在 :code 之前声明，避免 groups 被当成缺陷编号） */

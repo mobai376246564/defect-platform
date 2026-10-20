@@ -167,3 +167,47 @@ export type ListQuery = z.infer<typeof listQuerySchema>;
 
 export const groupsQuerySchema = listQuerySchema.extend({ groupBy: groupFieldSchema });
 export type GroupsQuery = z.infer<typeof groupsQuerySchema>;
+
+/** 批量修改：可改的字段与单个修改一致，状态按“切换到目标状态”处理 */
+export const bulkChangesSchema = z
+  .object({
+    status: z.string().min(1),
+    severity: severitySchema,
+    priority: prioritySchema.nullable(),
+    ownerIds: z.array(z.uuid()).max(10),
+    moduleId: z.uuid().nullable(),
+    bugType: bugTypeSchema.nullable(),
+    versionFoundId: z.uuid().nullable(),
+  })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, '至少修改一个字段');
+export type BulkChanges = z.infer<typeof bulkChangesSchema>;
+
+/** 最多一次批量修改的缺陷数 */
+export const MAX_BULK = 1000;
+
+/**
+ * 批量修改的对象：codes 为勾选的缺陷；不传 codes 时用 query（与列表接口相同的查询参数）选中全部筛选结果。
+ */
+export const bulkSchema = z
+  .object({
+    codes: z.array(z.string().min(1).max(30)).min(1).max(MAX_BULK).optional(),
+    query: z.record(z.string(), z.string()).optional(),
+    changes: bulkChangesSchema,
+  })
+  .refine((v) => v.codes || v.query, '请选择要修改的缺陷');
+export type BulkInput = z.infer<typeof bulkSchema>;
+
+/** 我的待办：跨项目列出指派给我的缺陷 */
+export const todoQuerySchema = z.object({
+  keyword: z.string().trim().max(100).optional(),
+  project: multi(z.string()),
+  statusCategory: multi(keysOf(STATUS_CATEGORY)),
+  severity: multi(severitySchema),
+  priority: multi(prioritySchema),
+  sort: z.string().max(200).optional(),
+  order: z.enum(['asc', 'desc']).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(200).default(20),
+});
+export type TodoQuery = z.infer<typeof todoQuerySchema>;
