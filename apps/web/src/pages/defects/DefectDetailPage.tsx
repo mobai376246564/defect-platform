@@ -32,7 +32,7 @@ import {
   Typography,
 } from 'antd';
 import dayjs from 'dayjs';
-import { useState, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import { qk, useDefect, useProject } from '../../api/hooks';
@@ -71,6 +71,16 @@ function DefectView({ project, defect }: { project: ProjectDetail; defect: Defec
   const [active, setActive] = useState<WorkflowTransition | null>(null);
   const [comment, setComment] = useState('');
   const [files, setFiles] = useState<PendingFile[]>([]);
+  // 吸顶标题区的实际高度（标题换行、窄屏时会变），侧栏吸顶时据此让开
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [headerHeight, setHeaderHeight] = useState(96);
+  useLayoutEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => setHeaderHeight(el.offsetHeight));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   const base = `/projects/${project.key}/defects/${defect.code}`;
   const show = (f: DetailField) => isFieldVisible(project.hiddenFields, f);
   const refresh = () => {
@@ -244,9 +254,9 @@ function DefectView({ project, defect }: { project: ProjectDetail; defect: Defec
   const hasSide = attrs.length > 0 || show('claude') || !!env;
 
   return (
-    <div>
-      {/* 标题区：编号、标题、状态 */}
-      <div className="defect-header">
+    <div style={{ '--defect-header-h': `${headerHeight}px` } as CSSProperties}>
+      {/* 标题区：编号、标题、状态，滚动时吸顶 */}
+      <div className="defect-header" ref={headerRef}>
         <div style={{ minWidth: 0, flex: 1 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             <Link to={`/p/${project.key}/bugs`}>{project.name}</Link>
