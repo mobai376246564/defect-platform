@@ -47,16 +47,17 @@ import {
   Tooltip,
   Typography,
 } from 'antd';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import { qk, useDefectGroups, useProject, useSavedViews } from '../../api/hooks';
+import { qk, useDefectGroups, useDefects, useProject, useSavedViews } from '../../api/hooks';
 import type { ProjectDetail, SavedViewItem } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
+import { BulkEditBar, type BulkChanges, type BulkResult } from '../../components/BulkEdit';
 import { FilterBuilder } from '../../components/FilterBuilder';
 import { SortEditor, describeSort } from '../../components/SortEditor';
 import { DefectCreateModal } from './DefectCreateModal';
-import { DefectTable } from './DefectTable';
+import { DefectTable, type TableSelection } from './DefectTable';
 import {
   BUILTIN_VIEWS,
   DEFAULT_SORT,
@@ -85,6 +86,33 @@ export function DefectListPage() {
   const [sortOpen, setSortOpen] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
   const qc = useQueryClient();
+  // 勾选：跨分页保留；“选择全部筛选结果”时按当前筛选条件批量修改
+  const [selected, setSelected] = useState<string[]>([]);
+  const [allMatching, setAllMatching] = useState(false);
+  const filterKey = JSON.stringify({ ...query, page: undefined, pageSize: undefined });
+  useEffect(() => {
+    setSelected([]);
+    setAllMatching(false);
+  }, [filterKey]);
+  // 与表格同一个查询，react-query 会复用结果，用于显示筛选结果总数
+  const listForTotal = useDefects(key, query);
+  const selection = {
+    keys: selected,
+    onChange: (keys: string[]) => {
+      setSelected(keys);
+      setAllMatching(false);
+    },
+  };
+  const applyBulk = (changes: BulkChanges) => {
+    const { page: _p, pageSize: _s, ...filters } = query;
+    return api<BulkResult>(`/projects/${key}/defects/bulk`, {
+      method: 'POST',
+      body: allMatching ? { query: filters, changes } : { codes: selected, changes },
+    }).finally(() => {
+      void qc.invalidateQueries({ queryKey: ['defects', key] });
+      void qc.invalidateQueries({ queryKey: ['todos'] });
+    });
+  };
 
   const update = (patch: Record<string, string | undefined>, resetPage = true) => {
     const next = new URLSearchParams(params);
@@ -314,6 +342,21 @@ export function DefectListPage() {
         )}
       </div>
 
+      {p && hasPermission(p.myRole, 'defect.edit') && (
+        <BulkEditBar
+          project={p}
+          selectedCount={selected.length}
+          matchingTotal={listForTotal.data?.total}
+          allMatching={allMatching}
+          onSelectAllMatching={() => setAllMatching(true)}
+          onClear={() => {
+            setSelected([]);
+            setAllMatching(false);
+          }}
+          onApply={applyBulk}
+        />
+      )}
+
       {groupBy ? (
         <GroupedDefects
           projectKey={key}
@@ -322,6 +365,7 @@ export function DefectListPage() {
           groupBy={groupBy}
           sort={sort}
           onSort={setSort}
+          selection={p && hasPermission(p.myRole, 'defect.edit') ? selection : undefined}
         />
       ) : (
         <DefectTable
@@ -330,6 +374,7 @@ export function DefectListPage() {
           query={query}
           sort={sort}
           onSort={setSort}
+          selection={p && hasPermission(p.myRole, 'defect.edit') ? selection : undefined}
           page={Number(query.page)}
           pageSize={Number(query.pageSize)}
           onPage={(page, pageSize) =>
@@ -366,6 +411,7 @@ function GroupedDefects({
   groupBy,
   sort,
   onSort,
+  selection,
 }: {
   projectKey: string;
   project: ProjectDetail | undefined;
@@ -373,6 +419,7 @@ function GroupedDefects({
   groupBy: GroupField;
   sort: SortSpec[];
   onSort: (s: SortSpec[]) => void;
+  selection?: TableSelection;
 }) {
   const base = Object.fromEntries(
     Object.entries(query).filter(([k]) => k !== 'page' && k !== 'pageSize'),
@@ -406,6 +453,7 @@ function GroupedDefects({
               query={{ ...base, groupField: groupBy, groupValue: g.value }}
               sort={sort}
               onSort={onSort}
+              selection={selection}
               page={paging.page}
               pageSize={paging.pageSize}
               onPage={(page, pageSize) => setPages({ ...pages, [g.value]: { page, pageSize } })}

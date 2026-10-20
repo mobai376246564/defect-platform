@@ -1,13 +1,14 @@
 import {
   AppstoreOutlined,
-  BarChartOutlined,
   BellOutlined,
   BugOutlined,
+  CheckSquareOutlined,
   CloudSyncOutlined,
   MenuFoldOutlined,
   MenuOutlined,
   MenuUnfoldOutlined,
   MoonOutlined,
+  PieChartOutlined,
   ProjectOutlined,
   SettingOutlined,
   SunOutlined,
@@ -28,9 +29,9 @@ import {
   Tooltip,
   type MenuProps,
 } from 'antd';
-import { useState, type ReactNode } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
 import { Link, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { useProjects, useUnreadCount } from '../api/hooks';
+import { useProjects, useTodos, useUnreadCount } from '../api/hooks';
 import { useAuth } from '../auth/AuthContext';
 import { UpdateBanner } from '../components/UpdateBanner';
 import { usePendingUserCount } from '../pages/UsersPage';
@@ -84,6 +85,8 @@ export function AppLayout() {
   const projects = useProjects();
   const unread = useUnreadCount();
   const pendingUsers = usePendingUserCount(!!user?.isSystemAdmin);
+  // 侧边栏“我的待办”上的未完成数量
+  const todoCount = useTodos({ statusCategory: 'todo,doing,verifying', pageSize: '1' });
   const { mode, toggle } = useThemeMode();
   const screens = Grid.useBreakpoint();
   const mobile = !screens.md;
@@ -100,26 +103,46 @@ export function AppLayout() {
     }
   };
 
+  /** 菜单图标：带底色的圆角方块，每项一种颜色便于区分；选中时变为实色 */
+  const chip = (icon: ReactNode, color: string) => (
+    <span className="nav-icon" style={{ '--chip': color } as CSSProperties}>
+      {icon}
+    </span>
+  );
+  const workItems: MenuProps['items'] = [
+    {
+      key: 'todo',
+      icon: chip(<CheckSquareOutlined />, '#f59e0b'),
+      label: (
+        <Link to="/todo" className="nav-label">
+          我的待办
+          {!!todoCount.data?.total && (
+            <span className="nav-count mono">{todoCount.data.total}</span>
+          )}
+        </Link>
+      ),
+    },
+  ];
   const projectItems: MenuProps['items'] = key
     ? [
         {
           key: 'bugs',
-          icon: <BugOutlined />,
+          icon: chip(<BugOutlined />, '#3b82f6'),
           label: <Link to={`/p/${key}/bugs`}>缺陷列表</Link>,
         },
         {
           key: 'board',
-          icon: <ProjectOutlined />,
+          icon: chip(<ProjectOutlined />, '#8b5cf6'),
           label: <Link to={`/p/${key}/bugs/board`}>缺陷看板</Link>,
         },
         {
           key: 'reports',
-          icon: <BarChartOutlined />,
+          icon: chip(<PieChartOutlined />, '#06b6d4'),
           label: <Link to={`/p/${key}/reports`}>统计报表</Link>,
         },
         {
           key: 'settings',
-          icon: <SettingOutlined />,
+          icon: chip(<SettingOutlined />, '#64748b'),
           label: <Link to={`/p/${key}/settings`}>项目设置</Link>,
         },
       ]
@@ -127,19 +150,19 @@ export function AppLayout() {
   const globalItems: MenuProps['items'] = [
     {
       key: 'projects',
-      icon: <AppstoreOutlined />,
+      icon: chip(<AppstoreOutlined />, '#10b981'),
       label: <Link to="/projects">{user?.isSystemAdmin ? '项目管理' : '全部项目'}</Link>,
     },
     ...(user?.isSystemAdmin
       ? [
           {
             key: 'users',
-            icon: <TeamOutlined />,
+            icon: chip(<TeamOutlined />, '#ec4899'),
             label: <Link to="/admin/users">用户管理</Link>,
           },
           {
             key: 'system',
-            icon: <CloudSyncOutlined />,
+            icon: chip(<CloudSyncOutlined />, '#14b8a6'),
             label: <Link to="/admin/system">系统更新</Link>,
           },
         ]
@@ -147,26 +170,35 @@ export function AppLayout() {
   ];
   const selected = key
     ? [section]
-    : location.pathname.startsWith('/admin/users')
-      ? ['users']
-      : location.pathname.startsWith('/admin/system')
-        ? ['system']
-        : location.pathname.startsWith('/projects')
-          ? ['projects']
-          : [];
+    : location.pathname.startsWith('/todo')
+      ? ['todo']
+      : location.pathname.startsWith('/admin/users')
+        ? ['users']
+        : location.pathname.startsWith('/admin/system')
+          ? ['system']
+          : location.pathname.startsWith('/projects')
+            ? ['projects']
+            : [];
+  const currentProject = projects.data?.find((p) => p.key === key);
   const menu = (
     <Menu
       mode="inline"
+      className="app-nav"
       selectedKeys={selected}
       onClick={() => setDrawerOpen(false)}
-      style={{ borderInlineEnd: 'none', paddingBlock: 8 }}
+      style={{ borderInlineEnd: 'none', paddingBlock: 4 }}
       items={[
-        ...(key ? [{ type: 'group' as const, label: '项目', children: projectItems }] : []),
-        {
-          type: 'group' as const,
-          label: key ? '全局' : undefined,
-          children: globalItems,
-        },
+        { type: 'group' as const, label: '工作台', children: workItems },
+        ...(key
+          ? [
+              {
+                type: 'group' as const,
+                label: currentProject ? `项目 · ${currentProject.name}` : '项目',
+                children: projectItems,
+              },
+            ]
+          : []),
+        { type: 'group' as const, label: '全局', children: globalItems },
       ]}
     />
   );
@@ -194,7 +226,7 @@ export function AppLayout() {
           />
         )}
         <Link
-          to="/projects"
+          to="/todo"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -301,7 +333,7 @@ export function AppLayout() {
       <Layout>
         {!mobile && (
           <Sider
-            width={208}
+            width={220}
             collapsible
             collapsed={collapsed}
             collapsedWidth={56}

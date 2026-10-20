@@ -9,6 +9,7 @@ import { ProjectsPage } from './pages/ProjectsPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SystemPage } from './pages/SystemPage';
+import { TodoPage } from './pages/TodoPage';
 import { UsersPage } from './pages/UsersPage';
 import { DefectCreatePage } from './pages/defects/DefectCreatePage';
 import { DefectDetailPage } from './pages/defects/DefectDetailPage';
@@ -38,6 +39,7 @@ export function AppRoutes() {
           </RequireAuth>
         }
       >
+        <Route path="/todo" element={<TodoPage />} />
         <Route path="/projects" element={<ProjectsPage />} />
         <Route path="/me" element={<MePage />} />
         <Route path="/admin/users" element={<UsersPage />} />
@@ -51,7 +53,7 @@ export function AppRoutes() {
         <Route path="/p/:key/reports" element={<ReportsPage />} />
         <Route path="/p/:key/settings" element={<SettingsPage />} />
       </Route>
-      <Route path="*" element={<Navigate to="/projects" replace />} />
+      <Route path="*" element={<Navigate to="/todo" replace />} />
     </Routes>
   );
 }

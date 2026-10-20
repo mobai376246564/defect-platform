@@ -1,45 +1,99 @@
-import type { SortField, SortSpec } from '@defect/shared';
-import { Space, Table, Tooltip, Typography } from 'antd';
+import { EditOutlined } from '@ant-design/icons';
+import {
+  PRIORITY_OPTIONS,
+  SEVERITY_OPTIONS,
+  freeTransitionKey,
+  hasPermission,
+  type SortField,
+  type SortSpec,
+} from '@defect/shared';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { App, Button, Input, Select, Space, Table, Tooltip, Typography } from 'antd';
 import type { ColumnsType, SortOrder } from 'antd/es/table/interface';
 import dayjs from 'dayjs';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { api } from '../../api/client';
 import { useDefects } from '../../api/hooks';
 import type { DefectRow, ProjectDetail } from '../../api/types';
 import { PriorityTag, SeverityTag, SourceTag, StatusTag } from '../../components/Tags';
 import { UserNames } from '../../components/UserNames';
 
-/**
- * 缺陷表格：按给定查询取一页数据。列表页与分组下的每一组都用它。
- * 点表头排序会替换成单字段排序（多字段排序在“排序”面板里设置）。
- */
-export function DefectTable({
-  projectKey,
-  project,
-  query,
-  sort,
-  onSort,
-  page,
-  pageSize,
-  onPage,
-  compact,
-}: {
-  projectKey: string;
-  project: ProjectDetail | undefined;
-  query: Record<string, string>;
+/** 勾选状态：keys 为缺陷编号，跨分页保留 */
+export interface TableSelection {
+  keys: string[];
+  onChange: (keys: string[], rows: DefectRow[]) => void;
+}
+
+interface ViewProps {
+  rows: DefectRow[];
+  total: number;
+  loading: boolean;
+  error?: string;
+  /** 行所属项目（跨项目的“我的待办”里每行可能不同） */
+  projectOf: (row: DefectRow) => ProjectDetail | undefined;
+  showProject?: boolean;
   sort: SortSpec[];
   onSort: (next: SortSpec[]) => void;
   page: number;
   pageSize: number;
   onPage: (page: number, pageSize: number) => void;
+  selection?: TableSelection;
   compact?: boolean;
-}) {
-  const defects = useDefects(projectKey, {
-    ...query,
-    page: String(page),
-    pageSize: String(pageSize),
+}
+
+const keyOf = (row: DefectRow, project: ProjectDetail | undefined) =>
+  row.project?.key ?? project?.key ?? '';
+
+/**
+ * 缺陷表格（只负责展示与行内编辑）：标题、状态、严重程度、优先级、处理人、模块可直接在表格里改；
+ * 点表头排序会替换成单字段排序（多字段排序在“排序”面板里设置）。
+ */
+export function DefectTableView({
+  rows,
+  total,
+  loading,
+  error,
+  projectOf,
+  showProject,
+  sort,
+  onSort,
+  page,
+  pageSize,
+  onPage,
+  selection,
+  compact,
+}: ViewProps) {
+  const { message } = App.useApp();
+  const qc = useQueryClient();
+  const refresh = (key: string) => {
+    void qc.invalidateQueries({ queryKey: ['defects', key] });
+    void qc.invalidateQueries({ queryKey: ['todos'] });
+  };
+  const patch = useMutation({
+    mutationFn: (v: { key: string; code: string; body: Record<string, unknown> }) =>
+      api(`/projects/${v.key}/defects/${v.code}`, { method: 'PATCH', body: v.body }),
+    onSuccess: (_, v) => refresh(v.key),
+    onError: (e: Error) => message.error(e.message),
   });
-  const workflow = project?.workflow;
-  const members = project?.members ?? [];
+  const move = useMutation({
+    mutationFn: (v: { key: string; code: string; to: string }) =>
+      api(`/projects/${v.key}/defects/${v.code}/transitions`, {
+        method: 'POST',
+        body: { transition: freeTransitionKey(v.to), values: {} },
+      }),
+    onSuccess: (_, v) => refresh(v.key),
+    onError: (e: Error) => message.error(e.message),
+  });
+
+  /** 字段可编辑：有编辑权限；开发只能改处理中的缺陷（与服务端规则一致） */
+  const canEdit = (row: DefectRow, p: ProjectDetail | undefined) =>
+    !!p &&
+    hasPermission(p.myRole, 'defect.edit') &&
+    (p.myRole !== 'developer' || row.statusCategory === 'doing');
+  /** 状态可直接切换：自由流转模式下除只读成员外都可以 */
+  const canMove = (p: ProjectDetail | undefined) =>
+    !!p && p.workflow.mode === 'free' && p.myRole !== 'viewer';
 
   const sortOf = (field: SortField): SortOrder => {
     const s = sort[0];
@@ -51,6 +105,28 @@ export function DefectTable({
     sortOrder: sortOf(field),
     sortDirections: ['descend', 'ascend'] as SortOrder[],
   });
+  const select = (
+    row: DefectRow,
+    p: ProjectDetail | undefined,
+    field: string,
+    value: string | null,
+    options: { value: string; label: React.ReactNode }[],
+    allowClear = true,
+  ) => (
+    <Select
+      size="small"
+      variant="borderless"
+      className="cell-select"
+      popupMatchSelectWidth={false}
+      value={value ?? undefined}
+      placeholder="—"
+      allowClear={allowClear}
+      options={options}
+      onChange={(v?: string) =>
+        patch.mutate({ key: keyOf(row, p), code: row.code, body: { [field]: v ?? null } })
+      }
+    />
+  );
 
   const columns: ColumnsType<DefectRow> = [
     {
@@ -59,34 +135,67 @@ export function DefectTable({
       key: 'seq',
       width: 110,
       ...sortable('seq'),
-      render: (code: string) => (
-        <Link className="defect-code" to={`/p/${projectKey}/bugs/${code}`}>
+      render: (code: string, row) => (
+        <Link className="defect-code" to={`/p/${keyOf(row, projectOf(row))}/bugs/${code}`}>
           {code}
         </Link>
       ),
     },
+    ...(showProject
+      ? [
+          {
+            title: '项目',
+            key: 'project',
+            width: 120,
+            ellipsis: true,
+            render: (_: unknown, row: DefectRow) => row.project?.name ?? '—',
+          },
+        ]
+      : []),
     {
       title: '标题',
       dataIndex: 'title',
       key: 'title',
       ellipsis: true,
-      render: (title: string, row) => (
-        <Space size={4}>
-          <Link to={`/p/${projectKey}/bugs/${row.code}`}>{title}</Link>
-          {row.dupCount > 0 && (
-            <Tooltip title={`又收到 ${row.dupCount} 条相同反馈`}>
-              <Typography.Text type="danger">+{row.dupCount}</Typography.Text>
-            </Tooltip>
-          )}
-        </Space>
-      ),
+      render: (title: string, row) => {
+        const p = projectOf(row);
+        return (
+          <EditableTitle
+            title={title}
+            href={`/p/${keyOf(row, p)}/bugs/${row.code}`}
+            dupCount={row.dupCount}
+            editable={canEdit(row, p)}
+            onSave={(next) =>
+              patch.mutate({ key: keyOf(row, p), code: row.code, body: { title: next } })
+            }
+          />
+        );
+      },
     },
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 110,
-      render: (s: string) => (workflow ? <StatusTag value={s} workflow={workflow} /> : s),
+      width: 124,
+      render: (s: string, row) => {
+        const p = projectOf(row);
+        if (!p) return s;
+        if (!canMove(p)) return <StatusTag value={s} workflow={p.workflow} />;
+        return (
+          <Select
+            size="small"
+            variant="borderless"
+            className="cell-select"
+            popupMatchSelectWidth={false}
+            value={s}
+            options={p.workflow.states.map((st) => ({
+              value: st.key,
+              label: <StatusTag value={st.key} workflow={p.workflow} />,
+            }))}
+            onChange={(to: string) => move.mutate({ key: keyOf(row, p), code: row.code, to })}
+          />
+        );
+      },
     },
     {
       title: '严重程度',
@@ -94,25 +203,77 @@ export function DefectTable({
       key: 'severity',
       width: 104,
       ...sortable('severity'),
-      render: (v: string) => <SeverityTag value={v} />,
+      render: (v: string, row) => {
+        const p = projectOf(row);
+        return canEdit(row, p) ? (
+          select(
+            row,
+            p,
+            'severity',
+            v,
+            SEVERITY_OPTIONS.map((o) => ({
+              value: o.value,
+              label: <SeverityTag value={o.value} />,
+            })),
+            false,
+          )
+        ) : (
+          <SeverityTag value={v} />
+        );
+      },
     },
     {
       title: '优先级',
       responsive: ['sm'],
       dataIndex: 'priority',
       key: 'priority',
-      width: 96,
+      width: 104,
       ...sortable('priority'),
-      render: (v: string | null) => <PriorityTag value={v} />,
+      render: (v: string | null, row) => {
+        const p = projectOf(row);
+        return canEdit(row, p) ? (
+          select(
+            row,
+            p,
+            'priority',
+            v,
+            PRIORITY_OPTIONS.map((o) => ({
+              value: o.value,
+              label: <PriorityTag value={o.value} />,
+            })),
+          )
+        ) : (
+          <PriorityTag value={v} />
+        );
+      },
     },
     {
       title: '处理人',
       responsive: ['md'],
       dataIndex: 'ownerIds',
       key: 'ownerIds',
-      width: 140,
-      ellipsis: true,
-      render: (ids: string[]) => <UserNames members={members} ids={ids} />,
+      width: 132,
+      render: (ids: string[], row) => {
+        const p = projectOf(row);
+        if (!canEdit(row, p)) return <UserNames members={p?.members ?? []} ids={ids} />;
+        return (
+          <Select
+            size="small"
+            mode="multiple"
+            variant="borderless"
+            className="cell-select"
+            maxTagCount={1}
+            popupMatchSelectWidth={false}
+            placeholder="未指派"
+            value={ids}
+            optionFilterProp="label"
+            options={p!.members.map((m) => ({ value: m.id, label: m.name }))}
+            onChange={(v: string[]) =>
+              patch.mutate({ key: keyOf(row, p), code: row.code, body: { ownerIds: v } })
+            }
+          />
+        );
+      },
     },
     {
       title: '模块',
@@ -120,12 +281,21 @@ export function DefectTable({
       dataIndex: 'moduleId',
       key: 'moduleId',
       width: 110,
-      ellipsis: true,
-      render: (id: string | null) => project?.modules.find((m) => m.id === id)?.name ?? '—',
+      render: (id: string | null, row) => {
+        const p = projectOf(row);
+        if (!canEdit(row, p)) return p?.modules.find((m) => m.id === id)?.name ?? '—';
+        return select(
+          row,
+          p,
+          'moduleId',
+          id,
+          p!.modules.map((m) => ({ value: m.id, label: m.name })),
+        );
+      },
     },
     {
       title: '来源',
-      responsive: ['xl'],
+      responsive: ['xxl'],
       dataIndex: 'source',
       key: 'source',
       width: 100,
@@ -133,10 +303,10 @@ export function DefectTable({
     },
     {
       title: '创建时间',
-      responsive: ['lg'],
+      responsive: ['xl'],
       dataIndex: 'createdAt',
       key: 'createdAt',
-      width: 150,
+      width: 140,
       ...sortable('createdAt'),
       render: (v: string) => dayjs(v).format('YYYY-MM-DD HH:mm'),
     },
@@ -145,7 +315,7 @@ export function DefectTable({
       responsive: ['xxl'],
       dataIndex: 'updatedAt',
       key: 'updatedAt',
-      width: 150,
+      width: 140,
       ...sortable('updatedAt'),
       render: (v: string) => dayjs(v).format('YYYY-MM-DD HH:mm'),
     },
@@ -153,17 +323,25 @@ export function DefectTable({
 
   return (
     <Table<DefectRow>
-      rowKey="id"
+      rowKey="code"
       size={compact ? 'small' : 'middle'}
-      loading={defects.isFetching}
+      loading={loading}
       columns={columns}
-      dataSource={defects.data?.items ?? []}
-      scroll={{ x: 960 }}
-      locale={{ emptyText: defects.isError ? defects.error.message : '没有符合条件的缺陷' }}
+      dataSource={rows}
+      // 标题列不设宽度、占剩余空间；总宽按“其他列 + 标题至少约 260px”估算，屏幕不够时横向滚动
+      scroll={{ x: showProject ? 1232 : 1112 }}
+      locale={{ emptyText: error ?? '没有符合条件的缺陷' }}
+      rowSelection={
+        selection && {
+          selectedRowKeys: selection.keys,
+          preserveSelectedRowKeys: true,
+          onChange: (keys, selected) => selection.onChange(keys as string[], selected),
+        }
+      }
       pagination={{
         current: page,
         pageSize,
-        total: defects.data?.total ?? 0,
+        total,
         showSizeChanger: true,
         size: compact ? 'small' : 'default',
         showTotal: (t) => `共 ${t} 条`,
@@ -182,5 +360,99 @@ export function DefectTable({
         onPage(pagination.current ?? 1, pagination.pageSize ?? pageSize);
       }}
     />
+  );
+}
+
+/** 标题：点链接进详情，点铅笔图标在表格里直接改 */
+function EditableTitle({
+  title,
+  href,
+  dupCount,
+  editable,
+  onSave,
+}: {
+  title: string;
+  href: string;
+  dupCount: number;
+  editable: boolean;
+  onSave: (title: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(title);
+  if (editing) {
+    const commit = () => {
+      setEditing(false);
+      const next = draft.trim();
+      if (next && next !== title) onSave(next);
+    };
+    return (
+      <Input
+        size="small"
+        autoFocus
+        maxLength={120}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onPressEnter={commit}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') setEditing(false);
+        }}
+      />
+    );
+  }
+  return (
+    <div className="cell-title">
+      <Link to={href} className="cell-title-link">
+        {title}
+      </Link>
+      {dupCount > 0 && (
+        <Tooltip title={`又收到 ${dupCount} 条相同反馈`}>
+          <Typography.Text type="danger">+{dupCount}</Typography.Text>
+        </Tooltip>
+      )}
+      {editable && (
+        <Button
+          size="small"
+          type="text"
+          className="cell-edit"
+          icon={<EditOutlined />}
+          aria-label="修改标题"
+          onClick={() => {
+            setDraft(title);
+            setEditing(true);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** 单个项目的缺陷表格：按给定查询取一页数据。列表页与分组下的每一组都用它。 */
+export function DefectTable({
+  projectKey,
+  project,
+  query,
+  ...rest
+}: Omit<ViewProps, 'rows' | 'total' | 'loading' | 'error' | 'projectOf'> & {
+  projectKey: string;
+  project: ProjectDetail | undefined;
+  query: Record<string, string>;
+}) {
+  const defects = useDefects(projectKey, {
+    ...query,
+    page: String(rest.page),
+    pageSize: String(rest.pageSize),
+  });
+  return (
+    <Space direction="vertical" style={{ width: '100%' }} size={0}>
+      <DefectTableView
+        {...rest}
+        rows={defects.data?.items ?? []}
+        total={defects.data?.total ?? 0}
+        loading={defects.isFetching}
+        error={defects.isError ? defects.error.message : undefined}
+        projectOf={() => project}
+      />
+    </Space>
   );
 }

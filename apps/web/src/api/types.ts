@@ -75,6 +75,8 @@ export interface DefectRow {
   id: string;
   code: string;
   title: string;
+  /** 跨项目列表（我的待办）里带上所属项目 */
+  project?: { key: string; name: string };
   status: string;
   statusCategory: string;
   severity: string;

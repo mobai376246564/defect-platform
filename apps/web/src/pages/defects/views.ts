@@ -17,7 +17,7 @@ export interface BuiltinView {
 const OPEN = 'todo,doing,verifying';
 
 export const BUILTIN_VIEWS: BuiltinView[] = [
-  { key: 'mine', label: '待我处理', query: { owner: 'me', statusCategory: OPEN } },
+  { key: 'mine', label: '我的待办', query: { owner: 'me', statusCategory: OPEN } },
   { key: 'created', label: '我创建的', query: { reporter: 'me' } },
   { key: 'open', label: '全部未关闭', query: { statusCategory: OPEN } },
   { key: 'triage', label: '待处理', query: { statusCategory: 'todo' } },

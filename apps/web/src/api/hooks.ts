@@ -120,3 +120,12 @@ export function useSavedViews(key: string) {
     queryFn: () => api<SavedViewItem[]>(`/projects/${key}/views`),
   });
 }
+
+/** 我的待办：跨项目列出指派给我的缺陷 */
+export function useTodos(query: Record<string, unknown>) {
+  return useQuery({
+    queryKey: ['todos', query],
+    queryFn: () => api<Page<DefectRow>>('/me/todos', { query }),
+    placeholderData: (prev) => prev,
+  });
+}

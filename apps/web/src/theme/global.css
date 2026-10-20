@@ -371,3 +371,146 @@ body {
   min-width: 0;
   line-height: 1.4;
 }
+
+/* 表格行内编辑：无边框下拉紧贴单元格，标题旁的编辑按钮悬停时显示 */
+.cell-select {
+  width: 100%;
+  margin-left: -7px;
+}
+
+/* 选中项里的标签去掉右外边距，不出现省略号 */
+.cell-select .ant-select-selection-item {
+  text-overflow: clip;
+}
+
+.cell-select .ant-select-selection-item .ant-tag {
+  margin-inline-end: 0;
+}
+
+.cell-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cell-title-link {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cell-edit {
+  opacity: 0;
+  flex: none;
+}
+
+.ant-table-row:hover .cell-edit,
+.cell-edit:focus-visible {
+  opacity: 1;
+}
+
+/* 批量操作栏 */
+.bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--unread-bg);
+}
+
+/* ---- 侧边栏 ---- */
+/* 分组标题：小号、加字距、带分隔线，和菜单项明显区分 */
+.app-nav .ant-menu-item-group-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 6px !important;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  color: var(--ant-color-text-tertiary, #6b7785);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-nav .ant-menu-item-group-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  min-width: 12px;
+  background: var(--sider-border);
+}
+
+.app-nav .ant-menu-item-group:first-child .ant-menu-item-group-title {
+  padding-top: 8px !important;
+}
+
+/* 菜单项：大一号、加粗 */
+.app-nav .ant-menu-item {
+  height: 42px !important;
+  line-height: 42px !important;
+  font-size: 15px;
+  font-weight: 600;
+  padding-left: 12px !important;
+}
+
+.app-nav .ant-menu-item .ant-menu-title-content {
+  margin-inline-start: 10px !important;
+}
+
+/* 图标方块 */
+.nav-icon {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border-radius: 8px;
+  font-size: 16px !important;
+  color: var(--chip);
+  background: color-mix(in srgb, var(--chip) 16%, transparent);
+  transition:
+    background 0.2s,
+    color 0.2s;
+}
+
+.app-nav .ant-menu-item-selected .nav-icon {
+  color: #fff;
+  background: var(--chip);
+}
+
+.nav-label {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.nav-count {
+  min-width: 22px;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: center;
+  color: #fff;
+  background: #f59e0b;
+}
+
+/* 收起时只显示图标方块 */
+.ant-menu-inline-collapsed.app-nav .ant-menu-item {
+  padding-inline: calc(50% - 14px) !important;
+}
+
+.ant-menu-inline-collapsed.app-nav .ant-menu-item-group-title {
+  padding-inline: 8px !important;
+  font-size: 0;
+}

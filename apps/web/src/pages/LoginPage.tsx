@@ -10,7 +10,7 @@ export function LoginPage() {
   const location = useLocation();
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const from = (location.state as { from?: string } | null)?.from ?? '/projects';
+  const from = (location.state as { from?: string } | null)?.from ?? '/todo';
 
   if (user) return <Navigate to={from} replace />;
 
