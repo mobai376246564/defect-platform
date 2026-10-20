@@ -345,3 +345,33 @@ export interface DefectGroups {
   total: number;
   groups: { value: string; count: number }[];
 }
+
+export interface CommitInfo {
+  commit: string;
+  shortCommit: string;
+  subject: string;
+  committedAt: string;
+}
+
+/** 系统版本：当前运行的提交、远程新提交，以及能否在线更新 */
+export interface SystemVersion {
+  current: CommitInfo | null;
+  latest: CommitInfo | null;
+  behind: number;
+  commits: CommitInfo[];
+  checkedAt: string | null;
+  checkError: string | null;
+  selfUpdate: { enabled: boolean; reason: string | null; remote: string; branch: string };
+}
+
+export interface UpdateStatus {
+  state: 'idle' | 'running' | 'succeeded' | 'failed';
+  step: string;
+  message: string;
+  from: string;
+  to: string;
+  backup: string;
+  startedAt: string | null;
+  updatedAt: string | null;
+  log: string;
+}

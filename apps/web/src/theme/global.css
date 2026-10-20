@@ -47,11 +47,9 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* 页面内容区：随窗口自适应，超宽屏才限制最大宽度 */
+/* 页面内容区：铺满侧边栏右侧的全部宽度 */
 .page {
   width: 100%;
-  max-width: 1680px;
-  margin: 0 auto;
 }
 
 .page-narrow {
@@ -119,5 +117,38 @@ body {
 
   .card-grid > .span-2 {
     grid-column: 1 / -1;
+  }
+}
+
+/* 项目设置：左侧二级菜单 + 右侧当前配置；窄屏菜单改为顶部横排 */
+.settings-layout {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.settings-nav {
+  position: sticky;
+  top: 68px;
+  border: 1px solid var(--sider-border);
+  border-radius: 6px;
+  padding: 4px 0;
+  overflow: hidden;
+}
+
+.settings-nav .ant-menu {
+  border-inline-end: none !important;
+  background: transparent;
+}
+
+@media (max-width: 767px) {
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-nav {
+    position: static;
+    padding: 0;
   }
 }

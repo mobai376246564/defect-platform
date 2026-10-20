@@ -29,6 +29,21 @@ const envSchema = z
     INGEST_HMAC_SECRET: z.string().min(8, 'INGEST_HMAC_SECRET 至少 8 位'),
     RECONCILE_INTERVAL_MINUTES: z.coerce.number().int().min(0).default(10),
     RUN_WORKER: boolString.default(true),
+
+    /** 在线更新（仅 macOS / Linux 上的 pm2 单机部署）：管理后台检查新版本并一键更新 */
+    SELF_UPDATE: boolString,
+    UPDATE_REMOTE: z
+      .string()
+      .regex(/^[\w.-]+$/)
+      .default('origin'),
+    UPDATE_BRANCH: z
+      .string()
+      .regex(/^[\w./-]+$/)
+      .default('main'),
+    /** 定时检查新版本的间隔（分钟），0 表示只在打开“系统更新”页或手动检查时检查 */
+    UPDATE_CHECK_INTERVAL_MINUTES: z.coerce.number().int().min(0).default(60),
+    /** 代码仓库目录，默认取服务端所在的 git 仓库根目录（测试时指向临时仓库） */
+    UPDATE_REPO_DIR: z.string().optional(),
   })
   .superRefine((env, ctx) => {
     if (env.STORAGE_DRIVER === 'cos') {

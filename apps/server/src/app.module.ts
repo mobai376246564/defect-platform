@@ -14,6 +14,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { ProjectsModule } from './projects/projects.module';
 import { ReportsModule } from './reports/reports.module';
 import { StorageModule } from './storage/storage.module';
+import { SystemModule } from './system/system.module';
 import { UsersController } from './users/users.controller';
 import { ViewsModule } from './views/views.module';
 
@@ -34,6 +35,7 @@ import { ViewsModule } from './views/views.module';
     NotificationsModule,
     ReportsModule,
     ViewsModule,
+    SystemModule,
   ],
   controllers: [HealthController, UsersController],
 })

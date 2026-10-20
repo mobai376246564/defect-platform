@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
@@ -6,8 +7,19 @@ const apiProxy = {
   '/api': { target: process.env.API_PROXY_TARGET ?? 'http://localhost:3000', changeOrigin: true },
 };
 
+/** 构建时的代码版本，页面据此判断服务端是否已更新到新版本、需要刷新 */
+function buildCommit(): string {
+  if (process.env.APP_COMMIT) return process.env.APP_COMMIT;
+  try {
+    return execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim();
+  } catch {
+    return '';
+  }
+}
+
 export default defineConfig({
   plugins: [react()],
+  define: { __APP_COMMIT__: JSON.stringify(buildCommit()) },
   server: {
     port: 5173,
     // 开发时把 /api 转发到本地服务端，与生产环境 Nginx 的同源部署方式一致

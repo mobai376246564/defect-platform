@@ -53,13 +53,47 @@ pm2 save                                 # 开机自启需再执行一次 pm2 st
 
 ## 日常操作
 
-| 操作              | 命令                                                                                                                 |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------- |
-| 查看状态          | `pm2 ls`                                                                                                             |
-| 查看日志          | `pm2 logs defect-server`                                                                                             |
-| 更新代码          | `git pull && npm ci && npm run build && npm run db:deploy -w @defect/server && pm2 restart defect-server defect-web` |
-| 停止              | `pm2 stop defect-web defect-server defect-db`                                                                        |
-| 模拟一条 APP 反馈 | `cd apps/server && npx tsx scripts/simulate-feedback.ts`                                                             |
+| 操作              | 命令                                                                                    |
+| ----------------- | --------------------------------------------------------------------------------------- |
+| 查看状态          | `pm2 ls`                                                                                |
+| 查看日志          | `pm2 logs defect-server`                                                                |
+| 更新代码          | 后台「系统更新」一键更新（见下节），或在仓库根目录执行 `bash deploy/pm2/self-update.sh` |
+| 停止              | `pm2 stop defect-web defect-server defect-db`                                           |
+| 模拟一条 APP 反馈 | `cd apps/server && npx tsx scripts/simulate-feedback.ts`                                |
+
+## 在线更新（系统更新）
+
+开启后，系统管理员可以在后台「系统更新」页查看当前版本、检查新版本并一键更新；有新版本时页面顶部会提示。
+
+更新脚本 `deploy/pm2/self-update.sh` 依次执行：拉取 → 备份数据库（`.data/backups/`）→ 快进合并 → 依赖变化时 `npm ci` → 构建 → 数据库迁移 → pm2 重启 → 健康检查。构建失败会自动回滚到更新前的版本；迁移失败会保留新代码但不重启，页面上会给出备份文件位置。
+
+一次性准备（在部署机的仓库根目录执行）：
+
+1. 生成只读部署密钥，把公钥添加到 GitHub 仓库 **Settings → Deploy keys**（不要勾选 Allow write access）：
+
+   ```bash
+   ssh-keygen -t ed25519 -N '' -C defect-deploy -f ~/.ssh/defect_deploy
+   cat ~/.ssh/defect_deploy.pub
+   ```
+
+2. 让 git 用这把密钥访问 GitHub，并把仓库设为远程 `origin`（已有 origin 时把 `add` 换成 `set-url`）：
+
+   ```bash
+   printf 'Host github-defect\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/defect_deploy\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+   ssh-keyscan github.com >> ~/.ssh/known_hosts
+   git remote add origin git@github-defect:<owner>/<repo>.git
+   git fetch origin main
+   ```
+
+3. 在 `apps/server/.env` 加上 `SELF_UPDATE=true`，然后执行 `pm2 restart defect-server`。
+
+说明：
+
+- 只支持 macOS / Linux 上的 pm2 单机部署；Docker 部署请按镜像方式更新。
+- 代码目录不能有未提交的改动，本地也不能有远程没有的提交，否则会拒绝更新。
+- 服务端默认每 60 分钟检查一次新版本（`UPDATE_CHECK_INTERVAL_MINUTES`），页面上也可以点「检查更新」；更新来源默认是 `origin/main`（`UPDATE_REMOTE`、`UPDATE_BRANCH`）。
+- 更新日志在 `.data/update/update.log`，进度在 `.data/update/status.json`。
+- pm2 重启时沿用原来的进程配置；如果更新改动了 `deploy/pm2/ecosystem.config.cjs`，需要手动 `pm2 delete` 后重新 `pm2 start`。
 
 本地 Claude Code 接入：在后台「个人设置」创建 Token，然后执行
 `claude mcp add --transport http defects http://<本机 IP>:5180/api/v1/mcp --header "Authorization: Bearer <Token>"`。

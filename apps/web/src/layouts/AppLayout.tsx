@@ -3,6 +3,7 @@ import {
   BarChartOutlined,
   BellOutlined,
   BugOutlined,
+  CloudSyncOutlined,
   MenuFoldOutlined,
   MenuOutlined,
   MenuUnfoldOutlined,
@@ -31,6 +32,7 @@ import { useState, type ReactNode } from 'react';
 import { Link, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useProjects, useUnreadCount } from '../api/hooks';
 import { useAuth } from '../auth/AuthContext';
+import { UpdateBanner } from '../components/UpdateBanner';
 import { usePendingUserCount } from '../pages/UsersPage';
 import { CHROME, themeConfig, useThemeMode } from '../theme/theme';
 import { menuSection } from './section';
@@ -135,6 +137,11 @@ export function AppLayout() {
             icon: <TeamOutlined />,
             label: <Link to="/admin/users">用户管理</Link>,
           },
+          {
+            key: 'system',
+            icon: <CloudSyncOutlined />,
+            label: <Link to="/admin/system">系统更新</Link>,
+          },
         ]
       : []),
   ];
@@ -142,9 +149,11 @@ export function AppLayout() {
     ? [section]
     : location.pathname.startsWith('/admin/users')
       ? ['users']
-      : location.pathname.startsWith('/projects')
-        ? ['projects']
-        : [];
+      : location.pathname.startsWith('/admin/system')
+        ? ['system']
+        : location.pathname.startsWith('/projects')
+          ? ['projects']
+          : [];
   const menu = (
     <Menu
       mode="inline"
@@ -261,7 +270,10 @@ export function AppLayout() {
             items: [
               { key: 'me', label: '个人设置与 Claude Code 接入', onClick: () => navigate('/me') },
               ...(user?.isSystemAdmin
-                ? [{ key: 'users', label: '用户管理', onClick: () => navigate('/admin/users') }]
+                ? [
+                    { key: 'users', label: '用户管理', onClick: () => navigate('/admin/users') },
+                    { key: 'system', label: '系统更新', onClick: () => navigate('/admin/system') },
+                  ]
                 : []),
               { type: 'divider' },
               { key: 'logout', label: '退出登录', onClick: logout },
@@ -324,8 +336,9 @@ export function AppLayout() {
         >
           {menu}
         </Drawer>
-        <Content style={{ padding: mobile ? 12 : '20px 24px', minWidth: 0 }}>
+        <Content style={{ padding: mobile ? 12 : '16px 20px', minWidth: 0 }}>
           <div className="page">
+            <UpdateBanner />
             <Outlet />
           </div>
         </Content>

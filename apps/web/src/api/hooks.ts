@@ -9,6 +9,8 @@ import type {
   ProjectDetail,
   ProjectSummary,
   SavedViewItem,
+  SystemVersion,
+  UpdateStatus,
 } from './types';
 
 export const qk = {
@@ -24,7 +26,31 @@ export const qk = {
   notifications: ['notifications'] as const,
   report: (key: string, name: string, query: Record<string, unknown>) =>
     ['report', key, name, query] as const,
+  systemVersion: ['system', 'version'] as const,
+  updateStatus: ['system', 'update'] as const,
 };
+
+/** 当前运行版本与是否有新版本；每 5 分钟刷新，顶部提示与“系统更新”页共用 */
+export function useSystemVersion() {
+  return useQuery({
+    queryKey: qk.systemVersion,
+    queryFn: () => api<SystemVersion>('/system/version'),
+    refetchInterval: 5 * 60_000,
+    staleTime: 60_000,
+  });
+}
+
+/** 在线更新进度（仅系统管理员）；更新进行中每 2 秒刷新，服务重启期间请求失败也继续轮询 */
+export function useUpdateStatus(enabled: boolean, polling: boolean) {
+  return useQuery({
+    queryKey: qk.updateStatus,
+    queryFn: () => api<UpdateStatus>('/system/update'),
+    enabled,
+    refetchInterval: polling ? 2000 : false,
+    retry: polling ? Infinity : 1,
+    retryDelay: 2000,
+  });
+}
 
 export function useProjects() {
   return useQuery({ queryKey: qk.projects, queryFn: () => api<ProjectSummary[]>('/projects') });

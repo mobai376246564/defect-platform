@@ -1,4 +1,11 @@
-import { CopyOutlined } from '@ant-design/icons';
+import {
+  ApartmentOutlined,
+  ApiOutlined,
+  CopyOutlined,
+  MobileOutlined,
+  TagsOutlined,
+  TeamOutlined,
+} from '@ant-design/icons';
 import { POSITION, PROJECT_ROLE, PROJECT_ROLES } from '@defect/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -8,7 +15,9 @@ import {
   Button,
   Card,
   Form,
+  Grid,
   Input,
+  Menu,
   Modal,
   Popconfirm,
   Select,
@@ -18,7 +27,7 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { qk, useProject } from '../api/hooks';
 import type { Member, ModuleItem, ProjectDetail, VersionItem } from '../api/types';
@@ -26,8 +35,19 @@ import { userName } from '../components/UserNames';
 
 const roleOptions = PROJECT_ROLES.map((r) => ({ value: r, label: PROJECT_ROLE[r] }));
 
+/** 项目设置的二级菜单：一次只编辑一类配置 */
+const SETTINGS_TABS = [
+  { key: 'members', label: '成员与角色', icon: <TeamOutlined /> },
+  { key: 'modules', label: '模块与负责人', icon: <ApartmentOutlined /> },
+  { key: 'versions', label: '版本', icon: <TagsOutlined /> },
+  { key: 'apps', label: 'APP 绑定', icon: <MobileOutlined /> },
+  { key: 'integration', label: '集成', icon: <ApiOutlined /> },
+];
+
 export function SettingsPage() {
   const { key = '' } = useParams();
+  const [params, setParams] = useSearchParams();
+  const mobile = !Grid.useBreakpoint().md;
   const { data: project } = useProject(key);
   const { message } = App.useApp();
   const qc = useQueryClient();
@@ -52,6 +72,10 @@ export function SettingsPage() {
 
   if (!project) return <Skeleton active />;
   const isAdmin = project.myRole === 'admin';
+  // 集成（Webhook 密钥）只有项目管理员能看到
+  const tabs = SETTINGS_TABS.filter((t) => t.key !== 'integration' || (isAdmin && project.webhook));
+  const requested = params.get('tab');
+  const tab = tabs.some((t) => t.key === requested) ? requested! : tabs[0]!.key;
 
   return (
     <div>
@@ -65,243 +89,261 @@ export function SettingsPage() {
         />
       )}
 
-      <div className="card-grid">
-        <Card title="成员与角色" className="span-2">
-          <Table<Member>
-            rowKey="id"
-            size="small"
-            pagination={false}
-            dataSource={project.members}
-            columns={[
-              { title: '姓名', dataIndex: 'name' },
-              { title: '账号', dataIndex: 'username' },
-              {
-                title: '职位',
-                dataIndex: 'position',
-                render: (v: Member['position']) => (v ? POSITION[v] : '—'),
-              },
-              {
-                title: '角色',
-                dataIndex: 'role',
-                render: (role: Member['role'], m) =>
-                  isAdmin ? (
+      <div className="settings-layout">
+        <nav className="settings-nav">
+          <Menu
+            mode={mobile ? 'horizontal' : 'inline'}
+            selectedKeys={[tab]}
+            items={tabs.map((t) => ({ key: t.key, icon: t.icon, label: t.label }))}
+            onClick={({ key: k }) => setParams({ tab: k }, { replace: true })}
+          />
+        </nav>
+        <div style={{ minWidth: 0 }}>
+          {tab === 'members' && (
+            <Card title="成员与角色">
+              <Table<Member>
+                rowKey="id"
+                size="small"
+                pagination={false}
+                dataSource={project.members}
+                columns={[
+                  { title: '姓名', dataIndex: 'name' },
+                  { title: '账号', dataIndex: 'username' },
+                  {
+                    title: '职位',
+                    dataIndex: 'position',
+                    render: (v: Member['position']) => (v ? POSITION[v] : '—'),
+                  },
+                  {
+                    title: '角色',
+                    dataIndex: 'role',
+                    render: (role: Member['role'], m) =>
+                      isAdmin ? (
+                        <Select
+                          size="small"
+                          value={role}
+                          options={roleOptions}
+                          style={{ width: 120 }}
+                          onChange={(r) =>
+                            void mutate('/members', 'POST', { account: m.username, role: r })
+                          }
+                        />
+                      ) : (
+                        <Tag>{PROJECT_ROLE[role]}</Tag>
+                      ),
+                  },
+                  {
+                    title: '',
+                    width: 80,
+                    render: (_, m) =>
+                      isAdmin && (
+                        <Popconfirm
+                          title={`移出 ${m.name}？`}
+                          onConfirm={() =>
+                            void mutate(`/members/${m.id}`, 'DELETE', undefined, '已移出')
+                          }
+                        >
+                          <Button size="small" type="link" danger>
+                            移出
+                          </Button>
+                        </Popconfirm>
+                      ),
+                  },
+                ]}
+              />
+              {isAdmin && (
+                <Form
+                  layout="inline"
+                  style={{ marginTop: 12 }}
+                  onFinish={(v) => void mutate('/members', 'POST', v, '已添加')}
+                >
+                  <Form.Item
+                    name="account"
+                    rules={[{ required: true, whitespace: true, message: '请输入账号或邮箱' }]}
+                  >
+                    <Input placeholder="账号或邮箱（需已审核通过）" style={{ width: 240 }} />
+                  </Form.Item>
+                  <Form.Item name="role">
                     <Select
-                      size="small"
-                      value={role}
                       options={roleOptions}
-                      style={{ width: 120 }}
-                      onChange={(r) =>
-                        void mutate('/members', 'POST', { account: m.username, role: r })
-                      }
-                    />
-                  ) : (
-                    <Tag>{PROJECT_ROLE[role]}</Tag>
-                  ),
-              },
-              {
-                title: '',
-                width: 80,
-                render: (_, m) =>
-                  isAdmin && (
-                    <Popconfirm
-                      title={`移出 ${m.name}？`}
-                      onConfirm={() =>
-                        void mutate(`/members/${m.id}`, 'DELETE', undefined, '已移出')
-                      }
-                    >
-                      <Button size="small" type="link" danger>
-                        移出
-                      </Button>
-                    </Popconfirm>
-                  ),
-              },
-            ]}
-          />
-          {isAdmin && (
-            <Form
-              layout="inline"
-              style={{ marginTop: 12 }}
-              onFinish={(v) => void mutate('/members', 'POST', v, '已添加')}
-            >
-              <Form.Item
-                name="account"
-                rules={[{ required: true, whitespace: true, message: '请输入账号或邮箱' }]}
-              >
-                <Input placeholder="账号或邮箱（需已审核通过）" style={{ width: 240 }} />
-              </Form.Item>
-              <Form.Item name="role">
-                <Select
-                  options={roleOptions}
-                  allowClear
-                  placeholder="按职位默认"
-                  style={{ width: 140 }}
-                />
-              </Form.Item>
-              <Button htmlType="submit">添加成员</Button>
-            </Form>
-          )}
-        </Card>
-
-        <Card
-          title="模块与负责人"
-          extra={<Typography.Text type="secondary">确认缺陷时自动指派给模块负责人</Typography.Text>}
-          style={{ marginBottom: 16 }}
-        >
-          <Table<ModuleItem>
-            rowKey="id"
-            size="small"
-            pagination={false}
-            dataSource={project.modules}
-            columns={[
-              { title: '模块', dataIndex: 'name' },
-              {
-                title: '负责人',
-                dataIndex: 'ownerId',
-                render: (ownerId: string | null, m) =>
-                  isAdmin ? (
-                    <Select
-                      size="small"
                       allowClear
-                      style={{ width: 160 }}
-                      value={ownerId ?? undefined}
-                      options={project.members.map((x) => ({ value: x.id, label: x.name }))}
-                      onChange={(v?: string) =>
-                        void mutate(`/modules/${m.id}`, 'PATCH', { ownerId: v ?? null })
-                      }
+                      placeholder="按职位默认"
+                      style={{ width: 140 }}
                     />
-                  ) : (
-                    userName(project.members, ownerId)
-                  ),
-              },
-            ]}
-          />
-          {isAdmin && (
-            <Form
-              layout="inline"
-              style={{ marginTop: 12 }}
-              onFinish={(v) => void mutate('/modules', 'POST', v, '已添加')}
+                  </Form.Item>
+                  <Button htmlType="submit">添加成员</Button>
+                </Form>
+              )}
+            </Card>
+          )}
+
+          {tab === 'modules' && (
+            <Card
+              title="模块与负责人"
+              extra={
+                <Typography.Text type="secondary">确认缺陷时自动指派给模块负责人</Typography.Text>
+              }
             >
-              <Form.Item name="name" rules={[{ required: true, message: '请输入模块名' }]}>
-                <Input placeholder="模块名" />
-              </Form.Item>
-              <Form.Item name="ownerId">
+              <Table<ModuleItem>
+                rowKey="id"
+                size="small"
+                pagination={false}
+                dataSource={project.modules}
+                columns={[
+                  { title: '模块', dataIndex: 'name' },
+                  {
+                    title: '负责人',
+                    dataIndex: 'ownerId',
+                    render: (ownerId: string | null, m) =>
+                      isAdmin ? (
+                        <Select
+                          size="small"
+                          allowClear
+                          style={{ width: 160 }}
+                          value={ownerId ?? undefined}
+                          options={project.members.map((x) => ({ value: x.id, label: x.name }))}
+                          onChange={(v?: string) =>
+                            void mutate(`/modules/${m.id}`, 'PATCH', { ownerId: v ?? null })
+                          }
+                        />
+                      ) : (
+                        userName(project.members, ownerId)
+                      ),
+                  },
+                ]}
+              />
+              {isAdmin && (
+                <Form
+                  layout="inline"
+                  style={{ marginTop: 12 }}
+                  onFinish={(v) => void mutate('/modules', 'POST', v, '已添加')}
+                >
+                  <Form.Item name="name" rules={[{ required: true, message: '请输入模块名' }]}>
+                    <Input placeholder="模块名" />
+                  </Form.Item>
+                  <Form.Item name="ownerId">
+                    <Select
+                      allowClear
+                      placeholder="负责人"
+                      style={{ width: 160 }}
+                      options={project.members.map((x) => ({ value: x.id, label: x.name }))}
+                    />
+                  </Form.Item>
+                  <Button htmlType="submit">添加模块</Button>
+                </Form>
+              )}
+            </Card>
+          )}
+
+          {tab === 'versions' && (
+            <Card
+              title="版本"
+              extra={
+                <Typography.Text type="secondary">
+                  版本关联 Git commit，Claude 据此对照代码
+                </Typography.Text>
+              }
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  gap: 8,
+                  marginBottom: 12,
+                }}
+              >
+                <Typography.Text>当前迭代版本</Typography.Text>
                 <Select
                   allowClear
-                  placeholder="负责人"
+                  size="small"
+                  placeholder="未设置"
+                  disabled={!isAdmin}
                   style={{ width: 160 }}
-                  options={project.members.map((x) => ({ value: x.id, label: x.name }))}
+                  value={project.fixVersionId ?? undefined}
+                  options={project.versions.map((v) => ({ value: v.id, label: v.name }))}
+                  onChange={(v?: string) => void mutate('', 'PATCH', { fixVersionId: v ?? null })}
                 />
-              </Form.Item>
-              <Button htmlType="submit">添加模块</Button>
-            </Form>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  MR 合并、缺陷自动转为已解决时，填入这个版本作为修复版本
+                </Typography.Text>
+              </div>
+              <Table<VersionItem>
+                rowKey="id"
+                size="small"
+                pagination={false}
+                dataSource={project.versions}
+                columns={[
+                  {
+                    title: '版本',
+                    dataIndex: 'name',
+                    render: (name: string, v) => (
+                      <span>
+                        {name}
+                        {v.id === project.fixVersionId && (
+                          <Tag color="processing" bordered={false} style={{ marginInlineStart: 6 }}>
+                            当前迭代
+                          </Tag>
+                        )}
+                      </span>
+                    ),
+                  },
+                  { title: 'Build', dataIndex: 'build', render: (v) => v ?? '—' },
+                  {
+                    title: 'Git commit',
+                    dataIndex: 'commit',
+                    render: (v) => (v ? <Typography.Text code>{v}</Typography.Text> : '—'),
+                  },
+                ]}
+              />
+              {isAdmin && (
+                <Form
+                  layout="inline"
+                  style={{ marginTop: 12 }}
+                  onFinish={(v) => void mutate('/versions', 'POST', v, '已添加')}
+                >
+                  <Form.Item name="name" rules={[{ required: true, message: '请输入版本号' }]}>
+                    <Input placeholder="3.12.1" />
+                  </Form.Item>
+                  <Form.Item name="build">
+                    <Input placeholder="Build 号" />
+                  </Form.Item>
+                  <Form.Item name="commit">
+                    <Input placeholder="Git commit" />
+                  </Form.Item>
+                  <Button htmlType="submit">添加版本</Button>
+                </Form>
+              )}
+            </Card>
           )}
-        </Card>
 
-        <Card
-          title="版本"
-          extra={
-            <Typography.Text type="secondary">
-              版本关联 Git commit，Claude 据此对照代码
-            </Typography.Text>
-          }
-          style={{ marginBottom: 16 }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              alignItems: 'center',
-              gap: 8,
-              marginBottom: 12,
-            }}
-          >
-            <Typography.Text>当前迭代版本</Typography.Text>
-            <Select
-              allowClear
-              size="small"
-              placeholder="未设置"
-              disabled={!isAdmin}
-              style={{ width: 160 }}
-              value={project.fixVersionId ?? undefined}
-              options={project.versions.map((v) => ({ value: v.id, label: v.name }))}
-              onChange={(v?: string) => void mutate('', 'PATCH', { fixVersionId: v ?? null })}
-            />
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              MR 合并、缺陷自动转为已解决时，填入这个版本作为修复版本
-            </Typography.Text>
-          </div>
-          <Table<VersionItem>
-            rowKey="id"
-            size="small"
-            pagination={false}
-            dataSource={project.versions}
-            columns={[
-              {
-                title: '版本',
-                dataIndex: 'name',
-                render: (name: string, v) => (
-                  <span>
-                    {name}
-                    {v.id === project.fixVersionId && (
-                      <Tag color="processing" bordered={false} style={{ marginInlineStart: 6 }}>
-                        当前迭代
-                      </Tag>
-                    )}
-                  </span>
-                ),
-              },
-              { title: 'Build', dataIndex: 'build', render: (v) => v ?? '—' },
-              {
-                title: 'Git commit',
-                dataIndex: 'commit',
-                render: (v) => (v ? <Typography.Text code>{v}</Typography.Text> : '—'),
-              },
-            ]}
-          />
-          {isAdmin && (
-            <Form
-              layout="inline"
-              style={{ marginTop: 12 }}
-              onFinish={(v) => void mutate('/versions', 'POST', v, '已添加')}
+          {tab === 'apps' && (
+            <Card
+              title="APP 绑定"
+              extra={
+                <Typography.Text type="secondary">
+                  这些包名的 APP 反馈会自动建单到本项目
+                </Typography.Text>
+              }
             >
-              <Form.Item name="name" rules={[{ required: true, message: '请输入版本号' }]}>
-                <Input placeholder="3.12.1" />
-              </Form.Item>
-              <Form.Item name="build">
-                <Input placeholder="Build 号" />
-              </Form.Item>
-              <Form.Item name="commit">
-                <Input placeholder="Git commit" />
-              </Form.Item>
-              <Button htmlType="submit">添加版本</Button>
-            </Form>
+              <Space.Compact style={{ width: '100%' }}>
+                <Select
+                  mode="tags"
+                  open={false}
+                  disabled={!isAdmin}
+                  style={{ flex: 1 }}
+                  defaultValue={project.appIds}
+                  onChange={(v: string[]) => saveApps.mutate(v)}
+                  placeholder="com.example.app"
+                />
+              </Space.Compact>
+            </Card>
           )}
-        </Card>
 
-        <Card
-          title="APP 绑定"
-          extra={
-            <Typography.Text type="secondary">
-              这些包名的 APP 反馈会自动建单到本项目
-            </Typography.Text>
-          }
-        >
-          <Space.Compact style={{ width: '100%' }}>
-            <Select
-              mode="tags"
-              open={false}
-              disabled={!isAdmin}
-              style={{ flex: 1 }}
-              defaultValue={project.appIds}
-              onChange={(v: string[]) => saveApps.mutate(v)}
-              placeholder="com.example.app"
-            />
-          </Space.Compact>
-        </Card>
-
-        {isAdmin && project.webhook && (
-          <IntegrationCard projectKey={key} webhook={project.webhook} onChanged={refresh} />
-        )}
+          {tab === 'integration' && project.webhook && (
+            <IntegrationCard projectKey={key} webhook={project.webhook} onChanged={refresh} />
+          )}
+        </div>
       </div>
     </div>
   );
