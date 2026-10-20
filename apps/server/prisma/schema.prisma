@@ -142,6 +142,8 @@ model Defect {
   status         String
   /// 状态类别（todo/doing/verifying/done），冗余存储便于统计与筛选
   statusCategory String
+  /// 状态在工作流中的顺序（0 起），由服务端随状态与工作流维护，用于按状态排序
+  statusRank     Int       @default(0)
   severity       String
   priority       String?
   /// 严重程度、优先级的等级（0 最高），由服务端随 severity / priority 维护，用于按等级排序

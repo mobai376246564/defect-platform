@@ -102,6 +102,7 @@ async function main(): Promise<void> {
             actual: TITLES[i % TITLES.length]!,
             status: state.key,
             statusCategory: category,
+            statusRank: i % states.length,
             severity,
             severityRank: SEVERITY_RANK[severity],
             priority,

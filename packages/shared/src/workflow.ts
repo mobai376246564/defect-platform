@@ -184,6 +184,12 @@ export function findState(def: WorkflowDefinition, key: string): WorkflowState |
   return def.states.find((s) => s.key === key);
 }
 
+/** 状态在工作流里的顺序（从 0 开始），用于按状态排序；未知状态排在最后 */
+export function stateRank(def: WorkflowDefinition, key: string): number {
+  const i = def.states.findIndex((s) => s.key === key);
+  return i < 0 ? def.states.length : i;
+}
+
 /** 自由流转模式下切换到某状态的流转 key，与起始状态无关 */
 export const freeTransitionKey = (toState: string) => `to_${toState}`;
 

@@ -114,12 +114,22 @@ export const GROUP_FIELDS = {
 } as const;
 export type GroupField = keyof typeof GROUP_FIELDS;
 
+/** “我的待办”跨项目可用的分组字段；状态按类别分组，不同项目的工作流也能放在一起比较 */
+export const TODO_GROUP_FIELDS = {
+  project: '项目',
+  statusCategory: '状态',
+  severity: '严重程度',
+  priority: '优先级',
+} as const;
+export type TodoGroupField = keyof typeof TODO_GROUP_FIELDS;
+
 /** 分组值为空时使用的占位值 */
 export const GROUP_NONE = '__none__';
 
-/** 可排序的字段；严重程度、优先级按等级而不是字母排序 */
+/** 可排序的字段；状态按工作流中的顺序，严重程度、优先级按等级而不是字母排序 */
 export const SORT_FIELDS = {
   createdAt: '创建时间',
+  status: '状态',
   updatedAt: '更新时间',
   severity: '严重程度',
   priority: '优先级',

@@ -13,6 +13,7 @@ import {
   hasPermission,
   PRIORITY_RANK,
   SEVERITY_RANK,
+  stateRank,
   type DefectSource,
   type GroupField,
   type Priority,
@@ -135,6 +136,7 @@ export class DefectsService {
           customFields: (input.customFields ?? {}) as Prisma.InputJsonValue,
           status: initial.key,
           statusCategory: initial.category,
+          statusRank: stateRank(workflow, initial.key),
           reporterId,
           verifierId: reporterId,
           source: extras.source,
@@ -322,6 +324,7 @@ export class DefectsService {
       ...input.values,
       status: t.to,
       statusCategory: target.category,
+      statusRank: stateRank(ctx.workflow, t.to),
     };
     if (
       !defect.confirmedAt &&

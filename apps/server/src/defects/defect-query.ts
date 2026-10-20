@@ -34,16 +34,7 @@ export function buildDefectWhere(projectId: string, user: AuthUser, q: ListQuery
       },
     });
   }
-  if (q.keyword) {
-    and.push({
-      OR: [
-        { code: { equals: q.keyword.toUpperCase() } },
-        { title: { contains: q.keyword, mode: 'insensitive' } },
-        { description: { contains: q.keyword, mode: 'insensitive' } },
-        { logSummary: { contains: q.keyword, mode: 'insensitive' } },
-      ],
-    });
-  }
+  if (q.keyword) and.push(keywordWhere(q.keyword));
   const conditions = q.filters?.conditions ?? [];
   if (conditions.length) {
     const parts = conditions.map((c) => conditionWhere(c, user));
@@ -53,6 +44,24 @@ export function buildDefectWhere(projectId: string, user: AuthUser, q: ListQuery
     and.push(groupWhere(q.groupField, q.groupValue, user));
   }
   return { AND: and };
+}
+
+/**
+ * 关键字模糊搜索：按空格拆成多个词，每个词都要在编号、标题、描述或日志摘要中出现（不区分大小写、部分匹配即可）。
+ * 例如“登录 丢失”能搜到“应用切到后台再回来登录态丢失”，“22”能搜到 APP-22。
+ */
+export function keywordWhere(keyword: string): Where {
+  const words = keyword.trim().split(/\s+/).filter(Boolean).slice(0, 10);
+  return {
+    AND: words.map((w) => ({
+      OR: [
+        { code: { contains: w, mode: 'insensitive' as const } },
+        { title: { contains: w, mode: 'insensitive' as const } },
+        { description: { contains: w, mode: 'insensitive' as const } },
+        { logSummary: { contains: w, mode: 'insensitive' as const } },
+      ],
+    })),
+  };
 }
 
 function conditionWhere(c: FilterCondition, user: AuthUser): Where {
@@ -135,9 +144,10 @@ function groupWhere(field: GroupField, value: string, user: AuthUser): Where {
   return { [field]: none ? null : value };
 }
 
-/** 排序字段到数据库列：严重程度、优先级按等级列排序，可空列的空值排在最后 */
+/** 排序字段到数据库列：状态按工作流顺序，严重程度、优先级按等级列排序，可空列的空值排在最后 */
 const SORT_COLUMN: Record<SortSpec['field'], { column: string; nullable: boolean }> = {
   createdAt: { column: 'createdAt', nullable: false },
+  status: { column: 'statusRank', nullable: false },
   updatedAt: { column: 'updatedAt', nullable: false },
   severity: { column: 'severityRank', nullable: false },
   priority: { column: 'priorityRank', nullable: true },

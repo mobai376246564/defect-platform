@@ -10,6 +10,7 @@ import {
 import {
   DEFAULT_WORKFLOW,
   defaultRoleForPosition,
+  stateRank,
   validateWorkflow,
   type WorkflowDefinition,
 } from '@defect/shared';
@@ -248,11 +249,11 @@ export class ProjectsService {
           data: { status: target.key, statusCategory: target.category },
         });
       }
-      // 状态类别可能被修改，同步冗余字段
+      // 状态类别、顺序可能被修改，同步冗余字段
       for (const s of workflow.states) {
         await tx.defect.updateMany({
           where: { projectId: project.id, status: s.key },
-          data: { statusCategory: s.category },
+          data: { statusCategory: s.category, statusRank: stateRank(workflow, s.key) },
         });
       }
     });

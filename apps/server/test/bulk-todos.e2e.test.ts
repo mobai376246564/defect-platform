@@ -166,4 +166,77 @@ describe('bulk edit and my to-dos (e2e)', () => {
       .expect(200);
     expect(tester2.body.total).toBe(0);
   });
+
+  it('searches by partial words and sorts by workflow status order', async () => {
+    const a = await create(keyB, { title: '模糊搜索 登录态在后台丢失' });
+    const b = await create(keyB, { title: '模糊搜索 首页白屏' });
+    await ctx.http
+      .post(`/api/v1/projects/${keyB}/defects/${a}/transitions`)
+      .set(auth(admin.token))
+      .send({ transition: 'to_to_verify', values: {} })
+      .expect(200);
+
+    const words = await ctx.http
+      .get(`/api/v1/projects/${keyB}/defects`)
+      .set(auth(admin.token))
+      .query({ keyword: '登录  丢失' })
+      .expect(200);
+    expect(words.body.items.map((d: { code: string }) => d.code)).toEqual([a]);
+
+    // 编号部分匹配：只输入数字也能搜到
+    const seq = b.split('-').pop()!;
+    const byCode = await ctx.http
+      .get(`/api/v1/projects/${keyB}/defects`)
+      .set(auth(admin.token))
+      .query({ keyword: `${keyB.toLowerCase()}-${seq}` })
+      .expect(200);
+    expect(byCode.body.items.map((d: { code: string }) => d.code)).toContain(b);
+
+    const asc = await ctx.http
+      .get(`/api/v1/projects/${keyB}/defects`)
+      .set(auth(admin.token))
+      .query({ keyword: '模糊搜索', sort: 'status:asc' })
+      .expect(200);
+    expect(asc.body.items.map((d: { code: string }) => d.code)).toEqual([b, a]);
+    const desc = await ctx.http
+      .get(`/api/v1/projects/${keyB}/defects`)
+      .set(auth(admin.token))
+      .query({ keyword: '模糊搜索', sort: 'status:desc' })
+      .expect(200);
+    expect(desc.body.items.map((d: { code: string }) => d.code)).toEqual([a, b]);
+  });
+
+  it('groups my to-dos by project and severity', async () => {
+    await create(keyA, { title: '分组待办 A', severity: 'fatal', ownerIds: [tester.id] });
+    await create(keyB, { title: '分组待办 B1', severity: 'fatal', ownerIds: [tester.id] });
+    await create(keyB, { title: '分组待办 B2', severity: 'prompt', ownerIds: [tester.id] });
+
+    const byProject = await ctx.http
+      .get('/api/v1/me/todos/groups')
+      .set(auth(tester.token))
+      .query({ groupBy: 'project', keyword: '分组待办' })
+      .expect(200);
+    expect(byProject.body.total).toBe(3);
+    expect(byProject.body.groups).toEqual([
+      { value: keyA, label: keyA, count: 1 },
+      { value: keyB, label: keyB, count: 2 },
+    ]);
+
+    const bySeverity = await ctx.http
+      .get('/api/v1/me/todos/groups')
+      .set(auth(tester.token))
+      .query({ groupBy: 'severity', keyword: '分组待办' })
+      .expect(200);
+    expect(bySeverity.body.groups).toEqual([
+      { value: 'fatal', count: 2 },
+      { value: 'prompt', count: 1 },
+    ]);
+
+    const inGroup = await ctx.http
+      .get('/api/v1/me/todos')
+      .set(auth(tester.token))
+      .query({ keyword: '分组待办', groupField: 'project', groupValue: keyB })
+      .expect(200);
+    expect(inGroup.body.total).toBe(2);
+  });
 });

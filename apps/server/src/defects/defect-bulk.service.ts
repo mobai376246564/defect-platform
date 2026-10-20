@@ -1,14 +1,25 @@
 import { BadRequestException, HttpException, Injectable } from '@nestjs/common';
-import { availableTransitions, findState } from '@defect/shared';
+import {
+  GROUP_NONE,
+  PRIORITY_RANK,
+  SEVERITY_RANK,
+  availableTransitions,
+  findState,
+  type Priority,
+  type Severity,
+} from '@defect/shared';
 import type { AuthUser } from '../common/auth-user';
+import type { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import type { ProjectContext } from '../projects/project-access.service';
-import { buildDefectOrderBy, buildDefectWhere } from './defect-query';
+import { buildDefectOrderBy, buildDefectWhere, keywordWhere } from './defect-query';
 import {
   MAX_BULK,
   listQuerySchema,
+  todoGroupsSchema,
   todoQuerySchema,
   type BulkInput,
+  type TodoGroupsQuery,
   type TodoQuery,
   type UpdateDefectInput,
 } from './defects.dto';
@@ -90,26 +101,7 @@ export class DefectBulkService {
   /** 我的待办：我所在的项目里，处理人包含我的缺陷 */
   async todos(user: AuthUser, raw: TodoQuery) {
     const q = todoQuerySchema.parse(raw);
-    const where = {
-      deletedAt: null,
-      ownerIds: { has: user.id },
-      project: {
-        members: { some: { userId: user.id } },
-        ...(q.project?.length ? { key: { in: q.project } } : {}),
-      },
-      ...(q.statusCategory?.length ? { statusCategory: { in: q.statusCategory } } : {}),
-      ...(q.severity?.length ? { severity: { in: q.severity } } : {}),
-      ...(q.priority?.length ? { priority: { in: q.priority } } : {}),
-      ...(q.keyword
-        ? {
-            OR: [
-              { code: { equals: q.keyword.toUpperCase() } },
-              { title: { contains: q.keyword, mode: 'insensitive' as const } },
-              { description: { contains: q.keyword, mode: 'insensitive' as const } },
-            ],
-          }
-        : {}),
-    };
+    const where = todoWhere(user, q);
     const [items, total] = await this.prisma.$transaction([
       this.prisma.defect.findMany({
         where,
@@ -139,6 +131,80 @@ export class DefectBulkService {
     ]);
     return { items, total, page: q.page, pageSize: q.pageSize };
   }
+
+  /** 我的待办分组：每组的值、显示名与数量；项目按名称排，严重程度、优先级、状态按等级排，空值组放最后 */
+  async todoGroups(user: AuthUser, raw: TodoGroupsQuery) {
+    const q = todoGroupsSchema.parse(raw);
+    const where = todoWhere(user, { ...q, groupField: undefined });
+    let groups: { value: string; label?: string; count: number }[];
+    if (q.groupBy === 'project') {
+      const rows = await this.prisma.defect.groupBy({
+        by: ['projectId'],
+        where,
+        _count: { _all: true },
+      });
+      const projects = await this.prisma.project.findMany({
+        where: { id: { in: rows.map((r) => r.projectId) } },
+        select: { id: true, key: true, name: true },
+      });
+      const byId = new Map(projects.map((p) => [p.id, p]));
+      groups = rows
+        .map((r) => ({
+          value: byId.get(r.projectId)?.key ?? GROUP_NONE,
+          label: byId.get(r.projectId)?.name,
+          count: r._count._all,
+        }))
+        .sort((a, b) => (a.label ?? '').localeCompare(b.label ?? '', 'zh-CN'));
+    } else {
+      const field = q.groupBy;
+      const rows = await this.prisma.defect.groupBy({ by: [field], where, _count: { _all: true } });
+      const rank = TODO_RANK[field];
+      groups = rows
+        .map((r) => ({
+          value:
+            (r as Record<string, unknown>)[field] == null
+              ? GROUP_NONE
+              : String((r as Record<string, unknown>)[field]),
+          count: r._count._all,
+        }))
+        .sort((a, b) => (rank[a.value] ?? 99) - (rank[b.value] ?? 99));
+    }
+    const total = await this.prisma.defect.count({ where });
+    return { groupBy: q.groupBy, total, groups };
+  }
+}
+
+const TODO_RANK: Record<'statusCategory' | 'severity' | 'priority', Record<string, number>> = {
+  statusCategory: { todo: 0, doing: 1, verifying: 2, done: 3 },
+  severity: SEVERITY_RANK as Record<Severity, number>,
+  priority: PRIORITY_RANK as Record<Priority, number>,
+};
+
+/** 我的待办的查询条件：我所在项目里处理人包含我，再叠加筛选、关键字与当前分组 */
+function todoWhere(user: AuthUser, q: TodoQuery): Prisma.DefectWhereInput {
+  const and: Prisma.DefectWhereInput[] = [
+    {
+      deletedAt: null,
+      ownerIds: { has: user.id },
+      project: {
+        members: { some: { userId: user.id } },
+        ...(q.project?.length ? { key: { in: q.project } } : {}),
+      },
+    },
+  ];
+  if (q.statusCategory?.length) and.push({ statusCategory: { in: q.statusCategory } });
+  if (q.severity?.length) and.push({ severity: { in: q.severity } });
+  if (q.priority?.length) and.push({ priority: { in: q.priority } });
+  if (q.keyword) and.push(keywordWhere(q.keyword));
+  if (q.groupField && q.groupValue !== undefined) {
+    const none = q.groupValue === GROUP_NONE;
+    and.push(
+      q.groupField === 'project'
+        ? { project: { key: q.groupValue } }
+        : { [q.groupField]: none ? null : q.groupValue },
+    );
+  }
+  return { AND: and };
 }
 
 function messageOf(err: HttpException): string {

@@ -3,6 +3,7 @@ import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mc
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import type { AuthUser } from '../common/auth-user';
+import { keywordWhere } from '../defects/defect-query';
 import { DefectsService, userActor } from '../defects/defects.service';
 import { grepLogs } from '../logs/log-archive';
 import { PrismaService } from '../prisma/prisma.service';
@@ -109,15 +110,7 @@ export class McpServerFactory {
               deletedAt: null,
               ...(args.statusCategory ? { statusCategory: args.statusCategory } : {}),
               ...(args.mine ? { ownerIds: { has: user.id } } : {}),
-              ...(args.keyword
-                ? {
-                    OR: [
-                      { code: args.keyword.toUpperCase() },
-                      { title: { contains: args.keyword, mode: 'insensitive' as const } },
-                      { description: { contains: args.keyword, mode: 'insensitive' as const } },
-                    ],
-                  }
-                : {}),
+              ...(args.keyword ? keywordWhere(args.keyword) : {}),
             },
             orderBy: { updatedAt: 'desc' },
             take: args.limit,

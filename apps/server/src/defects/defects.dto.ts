@@ -11,6 +11,7 @@ import {
   ROOT_CAUSE,
   SEVERITY,
   STATUS_CATEGORY,
+  TODO_GROUP_FIELDS,
   type FilterField,
   type FilterOp,
   type GroupField,
@@ -209,5 +210,10 @@ export const todoQuerySchema = z.object({
   order: z.enum(['asc', 'desc']).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(20),
+  groupField: keysOf(TODO_GROUP_FIELDS).optional(),
+  groupValue: z.string().max(100).optional(),
 });
 export type TodoQuery = z.infer<typeof todoQuerySchema>;
+
+export const todoGroupsSchema = todoQuerySchema.extend({ groupBy: keysOf(TODO_GROUP_FIELDS) });
+export type TodoGroupsQuery = z.infer<typeof todoGroupsSchema>;
