@@ -11,8 +11,10 @@ import {
   Query,
 } from '@nestjs/common';
 import {
+  DETAIL_FIELD_KEYS,
   PROJECT_ROLES,
   STATUS_CATEGORY,
+  type DetailField,
   type ProjectRole,
   type WorkflowDefinition,
 } from '@defect/shared';
@@ -38,11 +40,17 @@ const updateProjectSchema = z.object({
   defaultOwnerId: z.uuid().nullable().optional(),
   /** 当前迭代版本：MR 合并自动解决缺陷时填入修复版本 */
   fixVersionId: z.uuid().nullable().optional(),
+  /** 缺陷详情页隐藏的字段 */
+  hiddenFields: z
+    .array(z.enum(DETAIL_FIELD_KEYS as [DetailField, ...DetailField[]]))
+    .max(DETAIL_FIELD_KEYS.length)
+    .optional(),
 });
 
 const roleSchema = z.enum(PROJECT_ROLES as [string, ...string[]]);
 
 const workflowSchema = z.object({
+  mode: z.enum(['free', 'strict']).optional(),
   initialState: z.string().min(1),
   states: z
     .array(
@@ -54,19 +62,24 @@ const workflowSchema = z.object({
       }),
     )
     .min(2),
-  transitions: z.array(
-    z.object({
-      key: z.string().regex(/^[a-z][a-z0-9_]*$/),
-      from: z.string(),
-      to: z.string(),
-      label: z.string().min(1).max(20),
-      roles: z.array(roleSchema),
-      requiredFields: z.array(z.string()),
-      requiresComment: z.boolean().optional(),
-      system: z.boolean().optional(),
-      actions: z.array(z.string()).optional(),
-    }),
-  ),
+  transitions: z
+    .array(
+      z.object({
+        key: z.string().regex(/^[a-z][a-z0-9_]*$/),
+        from: z.string(),
+        to: z.string(),
+        label: z.string().min(1).max(20),
+        roles: z.array(roleSchema),
+        requiredFields: z.array(z.string()),
+        requiresComment: z.boolean().optional(),
+        system: z.boolean().optional(),
+        actions: z.array(z.string()).optional(),
+      }),
+    )
+    .default([]),
+  mergeTarget: z.string().optional(),
+  /** 被删除状态上的缺陷迁移到哪个状态：{ 旧状态 key: 新状态 key } */
+  remap: z.record(z.string(), z.string()).optional(),
 });
 
 /** account 为账号或邮箱（兼容旧的 email 字段）；不传 role 时按用户职位给默认角色。 */
@@ -143,7 +156,8 @@ export class ProjectsController {
     @Param('key') key: string,
     @Body(new ZodPipe(workflowSchema)) body: z.infer<typeof workflowSchema>,
   ) {
-    return this.projects.updateWorkflow(key, user, body as WorkflowDefinition);
+    const { remap, ...workflow } = body;
+    return this.projects.updateWorkflow(key, user, workflow as WorkflowDefinition, remap ?? {});
   }
 
   @Post(':key/members')

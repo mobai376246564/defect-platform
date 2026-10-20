@@ -60,6 +60,8 @@ export interface ProjectDetail {
   defaultOwnerId: string | null;
   /** 当前迭代版本：MR 合并自动解决缺陷时填入修复版本 */
   fixVersionId: string | null;
+  /** 缺陷详情页隐藏的字段（项目设置 → 字段显示） */
+  hiddenFields: string[];
   myRole: ProjectRole;
   workflow: WorkflowDefinition;
   modules: ModuleItem[];

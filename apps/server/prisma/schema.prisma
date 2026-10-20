@@ -75,6 +75,8 @@ model Project {
   defaultOwnerId String? @db.Uuid
   /// 当前迭代版本：MR 合并、缺陷自动转为已解决时填入修复版本（方案 7.7），为空则不填
   fixVersionId String? @db.Uuid
+  /// 缺陷详情页隐藏的字段（取值见 @defect/shared 的 DETAIL_FIELDS），只影响网页展示
+  hiddenFields String[] @default([])
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

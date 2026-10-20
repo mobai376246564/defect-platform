@@ -3,7 +3,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { JobsService } from '../src/jobs/jobs.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SnapshotService } from '../src/reports/snapshot.service';
-import { auth, createTestApp, createUser, projectKey, type TestContext } from './helpers';
+import {
+  auth,
+  createTestApp,
+  createUser,
+  projectKey,
+  type TestContext,
+  useClassicWorkflow,
+} from './helpers';
 
 type User = Awaited<ReturnType<typeof createUser>>;
 
@@ -47,6 +54,7 @@ describe('reports (e2e)', () => {
       .send({ key, name: '报表项目', appIds: [`com.reports.${key.toLowerCase()}`] })
       .expect(201);
     projectId = project.body.id;
+    await useClassicWorkflow(ctx, key, admin.token);
     for (const [u, role] of [
       [tester, 'tester'],
       [dev, 'developer'],

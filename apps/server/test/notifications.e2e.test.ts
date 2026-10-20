@@ -1,5 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { auth, createTestApp, createUser, projectKey, type TestContext } from './helpers';
+import {
+  auth,
+  createTestApp,
+  createUser,
+  projectKey,
+  type TestContext,
+  useClassicWorkflow,
+} from './helpers';
 
 type User = Awaited<ReturnType<typeof createUser>>;
 
@@ -41,6 +48,7 @@ describe('notifications (e2e)', () => {
       .set(auth(admin.token))
       .send({ key, name: '通知项目' })
       .expect(201);
+    await useClassicWorkflow(ctx, key, admin.token);
     for (const [u, role] of [
       [tester, 'tester'],
       [dev, 'developer'],

@@ -2,7 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { hmacSha256Hex } from '../src/common/crypto';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { auth, createTestApp, createUser, projectKey, type TestContext } from './helpers';
+import {
+  auth,
+  createTestApp,
+  createUser,
+  projectKey,
+  type TestContext,
+  useClassicWorkflow,
+} from './helpers';
 
 describe('Git webhooks (e2e)', () => {
   let ctx: TestContext;
@@ -26,6 +33,7 @@ describe('Git webhooks (e2e)', () => {
       .set(auth(admin.token))
       .send({ key, name: 'Webhook 测试' })
       .expect(201);
+    await useClassicWorkflow(ctx, key, admin.token);
     for (const [user, role] of [
       [tester, 'tester'],
       [dev, 'developer'],

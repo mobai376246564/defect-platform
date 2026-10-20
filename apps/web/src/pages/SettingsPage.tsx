@@ -1,7 +1,9 @@
 import {
   ApartmentOutlined,
   ApiOutlined,
+  BranchesOutlined,
   CopyOutlined,
+  EyeOutlined,
   MobileOutlined,
   TagsOutlined,
   TeamOutlined,
@@ -32,12 +34,16 @@ import { api } from '../api/client';
 import { qk, useProject } from '../api/hooks';
 import type { Member, ModuleItem, ProjectDetail, VersionItem } from '../api/types';
 import { userName } from '../components/UserNames';
+import { FieldSettings } from './settings/FieldSettings';
+import { WorkflowSettings } from './settings/WorkflowSettings';
 
 const roleOptions = PROJECT_ROLES.map((r) => ({ value: r, label: PROJECT_ROLE[r] }));
 
 /** 项目设置的二级菜单：一次只编辑一类配置 */
 const SETTINGS_TABS = [
   { key: 'members', label: '成员与角色', icon: <TeamOutlined /> },
+  { key: 'workflow', label: '缺陷状态', icon: <BranchesOutlined /> },
+  { key: 'fields', label: '字段显示', icon: <EyeOutlined /> },
   { key: 'modules', label: '模块与负责人', icon: <ApartmentOutlined /> },
   { key: 'versions', label: '版本', icon: <TagsOutlined /> },
   { key: 'apps', label: 'APP 绑定', icon: <MobileOutlined /> },
@@ -339,6 +345,9 @@ export function SettingsPage() {
               </Space.Compact>
             </Card>
           )}
+
+          {tab === 'workflow' && <WorkflowSettings project={project} editable={isAdmin} />}
+          {tab === 'fields' && <FieldSettings project={project} editable={isAdmin} />}
 
           {tab === 'integration' && project.webhook && (
             <IntegrationCard projectKey={key} webhook={project.webhook} onChanged={refresh} />

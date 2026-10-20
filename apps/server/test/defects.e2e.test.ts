@@ -1,5 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { auth, createTestApp, createUser, projectKey, type TestContext } from './helpers';
+import {
+  auth,
+  createTestApp,
+  createUser,
+  projectKey,
+  type TestContext,
+  useClassicWorkflow,
+} from './helpers';
 
 describe('defect lifecycle (e2e)', () => {
   let ctx: TestContext;
@@ -24,6 +31,7 @@ describe('defect lifecycle (e2e)', () => {
       .set(auth(admin.token))
       .send({ key, name: '项目' })
       .expect(201);
+    await useClassicWorkflow(ctx, key, admin.token);
     await ctx.http
       .post(`${base()}/members`)
       .set(auth(admin.token))

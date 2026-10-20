@@ -1,6 +1,11 @@
 import type { IncomingHttpHeaders } from 'node:http';
 import { BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
-import type { WorkflowDefinition } from '@defect/shared';
+import {
+  findState,
+  freeTransitionKey,
+  mergeTargetState,
+  type WorkflowDefinition,
+} from '@defect/shared';
 import { DefectsService } from '../defects/defects.service';
 import type { LinkInput } from '../defects/defects.dto';
 import type { Project } from '../generated/prisma/client';
@@ -14,8 +19,25 @@ import { gitlabProvider } from './gitlab.provider';
 /** 已支持的平台；新增腾讯工蜂等平台时在此追加适配器 */
 export const GIT_PROVIDERS: GitProvider[] = [githubProvider, gitlabProvider];
 
-/** MR 合并时执行的工作流流转（默认工作流：待代码审核 → 已解决） */
+/** 经典工作流里 MR 合并时执行的流转（待代码审核 → 已解决） */
 export const MERGE_TRANSITION = 'merged';
+
+/**
+ * MR 合并时缺陷要执行的流转；返回 null 表示只关联、不流转。
+ * 自由流转：处于“未开始 / 进行中”类别的缺陷转到合并目标状态（默认第一个“待验证”状态，如“待回归”）；
+ * 经典工作流：只有存在从当前状态出发的“已合并”流转（即待代码审核）时才流转。
+ */
+export function mergeTransition(workflow: WorkflowDefinition, status: string): string | null {
+  if (workflow.mode === 'free') {
+    const current = findState(workflow, status);
+    const target = mergeTargetState(workflow);
+    const open = current?.category === 'todo' || current?.category === 'doing';
+    return open && target && target.key !== status ? freeTransitionKey(target.key) : null;
+  }
+  return workflow.transitions.some((t) => t.key === MERGE_TRANSITION && t.from === status)
+    ? MERGE_TRANSITION
+    : null;
+}
 
 export interface WebhookResult {
   provider: string;
@@ -99,11 +121,8 @@ export class GitWebhooksService {
         result,
       );
       if (!defect || !event.merged) continue;
-      // 只有工作流里存在从当前状态出发的“已合并”流转（默认即待代码审核）时才流转，其他状态只关联
-      const canMerge = ctx.workflow.transitions.some(
-        (t) => t.key === MERGE_TRANSITION && t.from === defect.status,
-      );
-      if (!canMerge) continue;
+      const transition = mergeTransition(ctx.workflow, defect.status);
+      if (!transition) continue;
       // 填入当前迭代版本作为修复版本；已手动填过的不覆盖
       const setVersion = fixVersion && !defect.versionFixedId ? fixVersion : null;
       await this.defects.transition(
@@ -111,7 +130,7 @@ export class GitWebhooksService {
         { kind: 'system' },
         code,
         {
-          transition: MERGE_TRANSITION,
+          transition,
           values: setVersion ? { versionFixedId: setVersion.id } : {},
           comment: setVersion
             ? `MR 已合并：${event.url}，修复版本 ${setVersion.name}`

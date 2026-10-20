@@ -393,7 +393,7 @@ export class McpServerFactory {
       {
         title: '流转缺陷状态',
         description:
-          '按工作流流转缺陷状态，如 start（开始处理）、submit_review（提交审核）、resolve（直接解决）。可用流转见 get_defect。',
+          '按工作流流转缺陷状态。默认的自由流转用 to_<状态 key>，如 to_in_progress（处理中）、to_to_verify（待回归）；经典工作流用 start、submit_review 等。可用流转见 get_defect。',
         inputSchema: {
           code: CODE,
           transition: z.string().min(1),

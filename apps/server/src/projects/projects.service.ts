@@ -138,6 +138,7 @@ export class ProjectsService {
       repoUrl: project.repoUrl,
       defaultOwnerId: project.defaultOwnerId,
       fixVersionId: project.fixVersionId,
+      hiddenFields: project.hiddenFields,
       myRole: role,
       workflow,
       modules,
@@ -177,6 +178,7 @@ export class ProjectsService {
       repoUrl?: string | null;
       defaultOwnerId?: string | null;
       fixVersionId?: string | null;
+      hiddenFields?: string[];
     },
   ) {
     const { project } = await this.access.require(projectKey, user, 'project.configure');
@@ -193,32 +195,67 @@ export class ProjectsService {
     });
   }
 
-  async updateWorkflow(projectKey: string, user: AuthUser, workflow: WorkflowDefinition) {
+  /**
+   * 保存工作流（缺陷状态）。删除的状态上如果还有缺陷，必须在 remap 里指定迁移到哪个状态（方案 6.7），
+   * 迁移会写入变更历史；状态类别改了也同步到缺陷的冗余字段。保存后立即对所有人生效。
+   */
+  async updateWorkflow(
+    projectKey: string,
+    user: AuthUser,
+    workflow: WorkflowDefinition,
+    remap: Record<string, string> = {},
+  ) {
     const { project } = await this.access.require(projectKey, user, 'project.configure');
     const errors = validateWorkflow(workflow);
     if (errors.length > 0)
       throw new BadRequestException({ message: '工作流配置有误', issues: errors });
-    // 删除状态前，必须先把该状态下的缺陷迁走（方案 6.7）
-    const keys = workflow.states.map((s) => s.key);
-    const orphan = await this.prisma.defect.count({
-      where: { projectId: project.id, status: { notIn: keys }, deletedAt: null },
+    const states = new Map(workflow.states.map((s) => [s.key, s]));
+    const orphans = await this.prisma.defect.groupBy({
+      by: ['status'],
+      where: { projectId: project.id, status: { notIn: [...states.keys()] }, deletedAt: null },
+      _count: { _all: true },
     });
-    if (orphan > 0) {
-      throw new BadRequestException(`还有 ${orphan} 个缺陷处于被删除的状态，请先迁移`);
+    const unmapped = orphans.filter((o) => !states.has(remap[o.status] ?? ''));
+    if (unmapped.length > 0) {
+      throw new BadRequestException({
+        message: '还有缺陷处于被删除的状态，请选择迁移到哪个状态',
+        orphans: orphans.map((o) => ({ status: o.status, count: o._count._all })),
+      });
     }
-    await this.prisma.$transaction([
-      this.prisma.project.update({
+    await this.prisma.$transaction(async (tx) => {
+      await tx.project.update({
         where: { id: project.id },
         data: { workflow: workflow as unknown as Prisma.InputJsonValue },
-      }),
+      });
+      for (const o of orphans) {
+        const target = states.get(remap[o.status]!)!;
+        const moved = await tx.defect.findMany({
+          where: { projectId: project.id, status: o.status, deletedAt: null },
+          select: { id: true },
+        });
+        await tx.defectHistory.createMany({
+          data: moved.map((d) => ({
+            defectId: d.id,
+            field: 'status',
+            oldValue: o.status,
+            newValue: target.key,
+            operatorId: user.id,
+            via: 'web',
+          })),
+        });
+        await tx.defect.updateMany({
+          where: { id: { in: moved.map((d) => d.id) } },
+          data: { status: target.key, statusCategory: target.category },
+        });
+      }
       // 状态类别可能被修改，同步冗余字段
-      ...workflow.states.map((s) =>
-        this.prisma.defect.updateMany({
+      for (const s of workflow.states) {
+        await tx.defect.updateMany({
           where: { projectId: project.id, status: s.key },
           data: { statusCategory: s.category },
-        }),
-      ),
-    ]);
+        });
+      }
+    });
     return workflow;
   }
 

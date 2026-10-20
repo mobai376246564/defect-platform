@@ -20,7 +20,7 @@ export const BUILTIN_VIEWS: BuiltinView[] = [
   { key: 'mine', label: '待我处理', query: { owner: 'me', statusCategory: OPEN } },
   { key: 'created', label: '我创建的', query: { reporter: 'me' } },
   { key: 'open', label: '全部未关闭', query: { statusCategory: OPEN } },
-  { key: 'triage', label: '待分诊', query: { status: 'new' } },
+  { key: 'triage', label: '待处理', query: { statusCategory: 'todo' } },
   { key: 'verify', label: '待验证', query: { statusCategory: 'verifying', owner: 'me' } },
   { key: 'app', label: '线上反馈', query: { source: 'app', statusCategory: OPEN } },
   { key: 'all', label: '全部', query: {} },

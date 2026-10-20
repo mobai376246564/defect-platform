@@ -1,10 +1,10 @@
-import { DEFAULT_WORKFLOW } from '@defect/shared';
+import { CLASSIC_WORKFLOW } from '@defect/shared';
 import { describe, expect, it } from 'vitest';
 import type { HistoryItem, ProjectDetail } from '../../api/types';
 import { describeHistory } from './history';
 
 const project = {
-  workflow: DEFAULT_WORKFLOW,
+  workflow: CLASSIC_WORKFLOW,
   modules: [{ id: 'm1', name: '订单', parentId: null, ownerId: null }],
   versions: [],
   members: [{ id: 'u1', username: 'dev', name: '开发小李', email: 'd@x', role: 'developer' }],

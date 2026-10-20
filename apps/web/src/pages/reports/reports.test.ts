@@ -1,4 +1,4 @@
-import { DEFAULT_WORKFLOW } from '@defect/shared';
+import { CLASSIC_WORKFLOW } from '@defect/shared';
 import { describe, expect, it } from 'vitest';
 import type { ProjectDetail, TrendReport } from '../../api/types';
 import {
@@ -14,7 +14,7 @@ import {
 import { currentTab, reportQuery } from './query';
 
 const project = {
-  workflow: DEFAULT_WORKFLOW,
+  workflow: CLASSIC_WORKFLOW,
   modules: [{ id: 'm1', name: '支付', parentId: null, ownerId: null }],
   members: [{ id: 'u1', username: 'wang', name: '小王', email: 'w@x', role: 'developer' }],
 } as unknown as ProjectDetail;
