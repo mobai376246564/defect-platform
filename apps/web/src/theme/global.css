@@ -514,3 +514,36 @@ body {
   padding-inline: 8px !important;
   font-size: 0;
 }
+
+/* 表头拖动调整列宽：分隔线悬停时高亮，拖动时全局显示调整光标并禁止选中文字 */
+.col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  z-index: 2;
+  width: 8px;
+  cursor: col-resize;
+}
+
+.col-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 25%;
+  bottom: 25%;
+  left: 3px;
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.col-resize-handle:hover::after,
+.col-resizing .col-resize-handle:hover::after {
+  background: var(--ant-color-primary, #3b82f6);
+}
+
+body.col-resizing {
+  cursor: col-resize;
+  user-select: none;
+}

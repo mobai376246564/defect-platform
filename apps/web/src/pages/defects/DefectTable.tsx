@@ -8,7 +8,7 @@ import {
   type SortSpec,
 } from '@defect/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { App, Button, Input, Select, Space, Table, Tooltip, Typography } from 'antd';
+import { App, Button, Grid, Input, Select, Space, Table, Tooltip, Typography } from 'antd';
 import type { ColumnsType, SortOrder } from 'antd/es/table/interface';
 import dayjs from 'dayjs';
 import { useState } from 'react';
@@ -16,6 +16,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useDefects } from '../../api/hooks';
 import type { DefectRow, ProjectDetail } from '../../api/types';
+import { ResizableHeaderCell, useColumnWidths } from '../../components/ResizableColumns';
 import { PriorityTag, SeverityTag, SourceTag, StatusTag } from '../../components/Tags';
 import { UserNames } from '../../components/UserNames';
 
@@ -42,6 +43,22 @@ interface ViewProps {
   compact?: boolean;
 }
 
+/** 各列默认宽度；标题列不设宽度，占用剩余空间 */
+const DEFAULT_WIDTHS: Record<string, number> = {
+  seq: 110,
+  project: 120,
+  status: 124,
+  severity: 112,
+  priority: 124,
+  ownerIds: 150,
+  moduleId: 120,
+  source: 100,
+  createdAt: 140,
+  updatedAt: 140,
+};
+/** 标题列至少保留的宽度，屏幕放不下时横向滚动 */
+const TITLE_MIN = 280;
+
 const keyOf = (row: DefectRow, project: ProjectDetail | undefined) =>
   row.project?.key ?? project?.key ?? '';
 
@@ -66,6 +83,8 @@ export function DefectTableView({
 }: ViewProps) {
   const { message } = App.useApp();
   const qc = useQueryClient();
+  const screens = Grid.useBreakpoint();
+  const { widthOf, headerProps } = useColumnWidths('defect.col-widths', DEFAULT_WIDTHS);
   const refresh = (key: string) => {
     void qc.invalidateQueries({ queryKey: ['defects', key] });
     void qc.invalidateQueries({ queryKey: ['todos'] });
@@ -133,7 +152,6 @@ export function DefectTableView({
       title: '编号',
       dataIndex: 'code',
       key: 'seq',
-      width: 110,
       ...sortable('seq'),
       render: (code: string, row) => (
         <Link className="defect-code" to={`/p/${keyOf(row, projectOf(row))}/bugs/${code}`}>
@@ -146,7 +164,6 @@ export function DefectTableView({
           {
             title: '项目',
             key: 'project',
-            width: 120,
             ellipsis: true,
             render: (_: unknown, row: DefectRow) => row.project?.name ?? '—',
           },
@@ -176,7 +193,6 @@ export function DefectTableView({
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 124,
       render: (s: string, row) => {
         const p = projectOf(row);
         if (!p) return s;
@@ -201,7 +217,6 @@ export function DefectTableView({
       title: '严重程度',
       dataIndex: 'severity',
       key: 'severity',
-      width: 104,
       ...sortable('severity'),
       render: (v: string, row) => {
         const p = projectOf(row);
@@ -227,7 +242,6 @@ export function DefectTableView({
       responsive: ['sm'],
       dataIndex: 'priority',
       key: 'priority',
-      width: 104,
       ...sortable('priority'),
       render: (v: string | null, row) => {
         const p = projectOf(row);
@@ -252,7 +266,6 @@ export function DefectTableView({
       responsive: ['md'],
       dataIndex: 'ownerIds',
       key: 'ownerIds',
-      width: 132,
       render: (ids: string[], row) => {
         const p = projectOf(row);
         if (!canEdit(row, p)) return <UserNames members={p?.members ?? []} ids={ids} />;
@@ -280,7 +293,6 @@ export function DefectTableView({
       responsive: ['lg'],
       dataIndex: 'moduleId',
       key: 'moduleId',
-      width: 110,
       render: (id: string | null, row) => {
         const p = projectOf(row);
         if (!canEdit(row, p)) return p?.modules.find((m) => m.id === id)?.name ?? '—';
@@ -298,7 +310,6 @@ export function DefectTableView({
       responsive: ['xxl'],
       dataIndex: 'source',
       key: 'source',
-      width: 100,
       render: (v: string) => <SourceTag value={v} />,
     },
     {
@@ -306,7 +317,6 @@ export function DefectTableView({
       responsive: ['xl'],
       dataIndex: 'createdAt',
       key: 'createdAt',
-      width: 140,
       ...sortable('createdAt'),
       render: (v: string) => dayjs(v).format('YYYY-MM-DD HH:mm'),
     },
@@ -315,21 +325,34 @@ export function DefectTableView({
       responsive: ['xxl'],
       dataIndex: 'updatedAt',
       key: 'updatedAt',
-      width: 140,
       ...sortable('updatedAt'),
       render: (v: string) => dayjs(v).format('YYYY-MM-DD HH:mm'),
     },
   ];
+
+  // 套上当前列宽与表头拖动分隔线；按屏幕宽度去掉被 responsive 隐藏的列来估算横向滚动宽度
+  const sized = columns.map((c) => {
+    const key = String(c.key);
+    if (!(key in DEFAULT_WIDTHS)) return c;
+    return { ...c, width: widthOf(key), onHeaderCell: () => headerProps(key) };
+  });
+  const scrollX =
+    TITLE_MIN +
+    (selection ? 32 : 0) +
+    sized
+      .filter((c) => !c.responsive || c.responsive.some((b) => screens[b]))
+      .reduce((sum, c) => sum + (typeof c.width === 'number' ? c.width : 0), 0);
 
   return (
     <Table<DefectRow>
       rowKey="code"
       size={compact ? 'small' : 'middle'}
       loading={loading}
-      columns={columns}
+      columns={sized}
+      components={{ header: { cell: ResizableHeaderCell } }}
       dataSource={rows}
-      // 标题列不设宽度、占剩余空间；总宽按“其他列 + 标题至少约 260px”估算，屏幕不够时横向滚动
-      scroll={{ x: showProject ? 1232 : 1112 }}
+      tableLayout="fixed"
+      scroll={{ x: scrollX }}
       locale={{ emptyText: error ?? '没有符合条件的缺陷' }}
       rowSelection={
         selection && {
