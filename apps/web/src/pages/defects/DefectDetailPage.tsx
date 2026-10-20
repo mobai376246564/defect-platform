@@ -530,8 +530,8 @@ function DefectView({
                 }
               >
                 <Typography.Paragraph type="secondary" style={{ marginBottom: 8, fontSize: 12 }}>
-                  在本地项目目录打开 Claude Code 粘贴命令；首次使用先在
-                  <Link to="/me">个人设置</Link>接入 MCP。
+                  在本地项目目录打开 Claude Code 粘贴命令（也可以直接说“修复 {defect.code}”）；
+                  首次使用先在<Link to="/me">个人设置</Link>接入 MCP。
                 </Typography.Paragraph>
                 <Space.Compact style={{ width: '100%' }}>
                   <Input readOnly value={defect.fixCommand} className="mono" />

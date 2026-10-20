@@ -161,7 +161,7 @@ describe('defect lifecycle (e2e)', () => {
     });
 
     const detail = await ctx.http.get(url).set(auth(dev.token)).expect(200);
-    expect(detail.body.fixCommand).toBe(`/fix-bug ${code}`);
+    expect(detail.body.fixCommand).toBe(`/mcp__defects__fix_bug ${code}`);
     expect(detail.body.transitions.map((t: { key: string }) => t.key)).toEqual([
       'submit_review',
       'resolve',

@@ -246,7 +246,8 @@ export class DefectsService {
     return {
       ...defect,
       transitions: availableTransitions(ctx.workflow, defect.status, ctx.role),
-      fixCommand: `/fix-bug ${defect.code}`,
+      // MCP 提示词在 Claude Code 里的命令名：/mcp__<接入时的服务名 defects>__fix_bug
+      fixCommand: `/mcp__defects__fix_bug ${defect.code}`,
     };
   }
 

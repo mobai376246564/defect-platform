@@ -39,7 +39,7 @@ export const DETAIL_FIELDS = {
   createdAt: { label: '创建时间', area: 'attr' },
   updatedAt: { label: '更新时间', area: 'attr' },
 
-  claude: { label: '用 Claude Code 修复', area: 'side', hint: '复制 /fix-bug 命令' },
+  claude: { label: '用 Claude Code 修复', area: 'side', hint: '复制 Claude Code 修复命令' },
   deviceInfo: { label: '环境信息', area: 'side', hint: 'APP 版本、设备、系统、页面路径' },
 } as const satisfies Record<string, DetailFieldDef>;
 
