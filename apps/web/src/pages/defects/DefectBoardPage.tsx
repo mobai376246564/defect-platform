@@ -21,6 +21,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import { qk, useDefects, useProject } from '../../api/hooks';
 import type { DefectRow, ProjectDetail } from '../../api/types';
+import { DefectDrawer, useDefectDrawer } from '../../components/DefectDrawer';
 import { SeverityTag } from '../../components/Tags';
 import { TransitionModal, type TransitionSubmit } from '../../components/TransitionModal';
 import { UserNames } from '../../components/UserNames';
@@ -39,6 +40,7 @@ function Board({ project }: { project: ProjectDetail }) {
   const { message } = App.useApp();
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const drawer = useDefectDrawer();
   const [owner, setOwner] = useState<'all' | 'me'>('all');
   const [moduleId, setModuleId] = useState<string>();
   const [severity, setSeverity] = useState<string[]>([]);
@@ -240,7 +242,16 @@ function Board({ project }: { project: ProjectDetail }) {
                       styles={{ body: { padding: 10 } }}
                     >
                       <Space size={6} style={{ marginBottom: 4 }}>
-                        <Link to={`/p/${project.key}/bugs/${d.code}`}>{d.code}</Link>
+                        <Link
+                          to={`/p/${project.key}/bugs/${d.code}`}
+                          onClick={(e) => {
+                            if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+                            e.preventDefault();
+                            drawer.open(d.code);
+                          }}
+                        >
+                          {d.code}
+                        </Link>
                         <SeverityTag value={d.severity} />
                       </Space>
                       <Typography.Paragraph ellipsis={{ rows: 2 }} style={{ margin: 0 }}>
@@ -258,6 +269,7 @@ function Board({ project }: { project: ProjectDetail }) {
         })}
       </div>
 
+      <DefectDrawer code={drawer.code} onClose={drawer.close} />
       {pending && (
         <TransitionModal
           transition={pending.transition}

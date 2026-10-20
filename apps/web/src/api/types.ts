@@ -347,7 +347,8 @@ export interface SavedViewItem {
 export interface DefectGroups {
   groupBy: string;
   total: number;
-  groups: { value: string; count: number }[];
+  /** label 只在“我的待办”按项目分组时返回（项目名） */
+  groups: { value: string; label?: string; count: number }[];
 }
 
 export interface CommitInfo {

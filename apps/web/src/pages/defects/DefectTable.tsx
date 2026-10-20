@@ -41,7 +41,19 @@ interface ViewProps {
   onPage: (page: number, pageSize: number) => void;
   selection?: TableSelection;
   compact?: boolean;
+  /** 传入时点编号或标题在右侧抽屉打开详情（按住 Ctrl / ⌘ 点击仍在新标签页打开） */
+  onOpen?: (code: string) => void;
+  /** 抽屉里正在查看的缺陷，所在行高亮 */
+  activeCode?: string;
 }
+
+/** 普通左键点击时交给 onOpen；带修饰键或中键时保持链接的默认行为 */
+const openHandler =
+  (onOpen: ((code: string) => void) | undefined, code: string) => (e: React.MouseEvent) => {
+    if (!onOpen || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    onOpen(code);
+  };
 
 /** 各列默认宽度；标题列不设宽度，占用剩余空间 */
 const DEFAULT_WIDTHS: Record<string, number> = {
@@ -80,6 +92,8 @@ export function DefectTableView({
   onPage,
   selection,
   compact,
+  onOpen,
+  activeCode,
 }: ViewProps) {
   const { message } = App.useApp();
   const qc = useQueryClient();
@@ -154,7 +168,11 @@ export function DefectTableView({
       key: 'seq',
       ...sortable('seq'),
       render: (code: string, row) => (
-        <Link className="defect-code" to={`/p/${keyOf(row, projectOf(row))}/bugs/${code}`}>
+        <Link
+          className="defect-code"
+          to={`/p/${keyOf(row, projectOf(row))}/bugs/${code}`}
+          onClick={openHandler(onOpen, code)}
+        >
           {code}
         </Link>
       ),
@@ -181,6 +199,7 @@ export function DefectTableView({
             title={title}
             href={`/p/${keyOf(row, p)}/bugs/${row.code}`}
             dupCount={row.dupCount}
+            onClick={openHandler(onOpen, row.code)}
             editable={canEdit(row, p)}
             onSave={(next) =>
               patch.mutate({ key: keyOf(row, p), code: row.code, body: { title: next } })
@@ -193,6 +212,9 @@ export function DefectTableView({
       title: '状态',
       dataIndex: 'status',
       key: 'status',
+      // 状态按工作流顺序：第一次点击从前往后
+      ...sortable('status'),
+      sortDirections: ['ascend', 'descend'] as SortOrder[],
       render: (s: string, row) => {
         const p = projectOf(row);
         if (!p) return s;
@@ -346,6 +368,7 @@ export function DefectTableView({
   return (
     <Table<DefectRow>
       rowKey="code"
+      rowClassName={(r) => (r.code === activeCode ? 'row-active' : '')}
       size={compact ? 'small' : 'middle'}
       loading={loading}
       columns={sized}
@@ -391,12 +414,14 @@ function EditableTitle({
   title,
   href,
   dupCount,
+  onClick,
   editable,
   onSave,
 }: {
   title: string;
   href: string;
   dupCount: number;
+  onClick: (e: React.MouseEvent) => void;
   editable: boolean;
   onSave: (title: string) => void;
 }) {
@@ -425,7 +450,7 @@ function EditableTitle({
   }
   return (
     <div className="cell-title">
-      <Link to={href} className="cell-title-link">
+      <Link to={href} className="cell-title-link" onClick={onClick}>
         {title}
       </Link>
       {dupCount > 0 && (

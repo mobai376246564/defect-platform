@@ -47,25 +47,49 @@ import { describeHistory } from './history';
 
 export function DefectDetailPage() {
   const { key = '', code = '' } = useParams();
-  const project = useProject(key);
-  const defect = useDefect(key, code);
+  return <DefectPanel projectKey={key} code={code} />;
+}
+
+/** 缺陷详情：独立页面与列表右侧的半屏抽屉共用；inDrawer 时单独滚动、窄时变为一列且属性区在前 */
+export function DefectPanel({
+  projectKey,
+  code,
+  inDrawer,
+}: {
+  projectKey: string;
+  code: string;
+  inDrawer?: boolean;
+}) {
+  const project = useProject(projectKey);
+  const defect = useDefect(projectKey, code);
 
   if (defect.isError)
     return (
       <Result
         status="404"
         title={defect.error.message}
-        extra={<Link to={`/p/${key}/bugs`}>返回列表</Link>}
+        extra={<Link to={`/p/${projectKey}/bugs`}>返回列表</Link>}
       />
     );
-  if (!defect.data || !project.data) return <Skeleton active paragraph={{ rows: 12 }} />;
-  return <DefectView project={project.data} defect={defect.data} />;
+  if (!defect.data || !project.data)
+    return (
+      <Skeleton active paragraph={{ rows: 12 }} style={inDrawer ? { padding: 20 } : undefined} />
+    );
+  return <DefectView project={project.data} defect={defect.data} inDrawer={inDrawer} />;
 }
 
 const time = (v: string | null | undefined) => (v ? dayjs(v).format('YYYY-MM-DD HH:mm') : '—');
 const label = (dict: Record<string, string>, v: string | null) => (v ? (dict[v] ?? v) : '—');
 
-function DefectView({ project, defect }: { project: ProjectDetail; defect: DefectDetail }) {
+function DefectView({
+  project,
+  defect,
+  inDrawer,
+}: {
+  project: ProjectDetail;
+  defect: DefectDetail;
+  inDrawer?: boolean;
+}) {
   const { message } = App.useApp();
   const qc = useQueryClient();
   const [active, setActive] = useState<WorkflowTransition | null>(null);
@@ -86,6 +110,7 @@ function DefectView({ project, defect }: { project: ProjectDetail; defect: Defec
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: qk.defect(project.key, defect.code) });
     void qc.invalidateQueries({ queryKey: ['defects', project.key] });
+    void qc.invalidateQueries({ queryKey: ['todos'] });
   };
   const canEdit =
     hasPermission(project.myRole, 'defect.edit') &&
@@ -254,7 +279,10 @@ function DefectView({ project, defect }: { project: ProjectDetail; defect: Defec
   const hasSide = attrs.length > 0 || show('claude') || !!env;
 
   return (
-    <div style={{ '--defect-header-h': `${headerHeight}px` } as CSSProperties}>
+    <div
+      className={inDrawer ? 'defect-view in-drawer' : 'defect-view'}
+      style={{ '--defect-header-h': `${headerHeight}px` } as CSSProperties}
+    >
       {/* 标题区：编号、标题、状态，滚动时吸顶 */}
       <div className="defect-header" ref={headerRef}>
         <div style={{ minWidth: 0, flex: 1 }}>

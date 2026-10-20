@@ -121,6 +121,16 @@ export function useSavedViews(key: string) {
   });
 }
 
+/** 我的待办分组统计 */
+export function useTodoGroups(query: Record<string, unknown>, enabled: boolean) {
+  return useQuery({
+    queryKey: ['todos', 'groups', query],
+    queryFn: () => api<DefectGroups>('/me/todos/groups', { query }),
+    enabled,
+    placeholderData: (prev) => prev,
+  });
+}
+
 /** 我的待办：跨项目列出指派给我的缺陷 */
 export function useTodos(query: Record<string, unknown>) {
   return useQuery({

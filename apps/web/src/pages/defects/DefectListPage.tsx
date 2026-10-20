@@ -57,6 +57,7 @@ import { BulkEditBar, type BulkChanges, type BulkResult } from '../../components
 import { FilterBuilder } from '../../components/FilterBuilder';
 import { SortEditor, describeSort } from '../../components/SortEditor';
 import { DefectCreateModal } from './DefectCreateModal';
+import { DefectDrawer, useDefectDrawer } from '../../components/DefectDrawer';
 import { DefectTable, type TableSelection } from './DefectTable';
 import {
   BUILTIN_VIEWS,
@@ -86,6 +87,7 @@ export function DefectListPage() {
   const [sortOpen, setSortOpen] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
   const qc = useQueryClient();
+  const drawer = useDefectDrawer();
   // 勾选：跨分页保留；“选择全部筛选结果”时按当前筛选条件批量修改
   const [selected, setSelected] = useState<string[]>([]);
   const [allMatching, setAllMatching] = useState(false);
@@ -366,6 +368,8 @@ export function DefectListPage() {
           sort={sort}
           onSort={setSort}
           selection={p && hasPermission(p.myRole, 'defect.edit') ? selection : undefined}
+          onOpen={drawer.open}
+          activeCode={drawer.code}
         />
       ) : (
         <DefectTable
@@ -375,6 +379,8 @@ export function DefectListPage() {
           sort={sort}
           onSort={setSort}
           selection={p && hasPermission(p.myRole, 'defect.edit') ? selection : undefined}
+          onOpen={drawer.open}
+          activeCode={drawer.code}
           page={Number(query.page)}
           pageSize={Number(query.pageSize)}
           onPage={(page, pageSize) =>
@@ -383,6 +389,7 @@ export function DefectListPage() {
         />
       )}
 
+      <DefectDrawer code={drawer.code} onClose={drawer.close} />
       <DefectCreateModal
         projectKey={key}
         project={p}
@@ -412,6 +419,8 @@ function GroupedDefects({
   sort,
   onSort,
   selection,
+  onOpen,
+  activeCode,
 }: {
   projectKey: string;
   project: ProjectDetail | undefined;
@@ -420,6 +429,8 @@ function GroupedDefects({
   sort: SortSpec[];
   onSort: (s: SortSpec[]) => void;
   selection?: TableSelection;
+  onOpen: (code: string) => void;
+  activeCode?: string;
 }) {
   const base = Object.fromEntries(
     Object.entries(query).filter(([k]) => k !== 'page' && k !== 'pageSize'),
@@ -454,6 +465,8 @@ function GroupedDefects({
               sort={sort}
               onSort={onSort}
               selection={selection}
+              onOpen={onOpen}
+              activeCode={activeCode}
               page={paging.page}
               pageSize={paging.pageSize}
               onPage={(page, pageSize) => setPages({ ...pages, [g.value]: { page, pageSize } })}

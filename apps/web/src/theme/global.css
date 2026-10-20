@@ -547,3 +547,40 @@ body.col-resizing {
   cursor: col-resize;
   user-select: none;
 }
+
+/* 右侧半屏详情：抽屉内容自己滚动，标题区吸在抽屉顶部；宽度不够时变为一列，属性区放在前面方便修改 */
+.defect-view.in-drawer {
+  container-type: inline-size;
+  padding: 0 20px 20px;
+}
+
+.in-drawer .defect-header {
+  top: 0;
+  margin: 0 -20px 16px;
+  padding: 12px 20px;
+}
+
+.in-drawer .defect-side {
+  position: static;
+  max-height: none;
+  overflow: visible;
+}
+
+@container (max-width: 860px) {
+  .in-drawer .defect-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .in-drawer .defect-side {
+    order: -1;
+  }
+
+  .in-drawer .status-control {
+    align-items: flex-start;
+  }
+}
+
+/* 当前在抽屉里打开的缺陷所在行 */
+.ant-table-tbody > tr.row-active > td {
+  background: var(--row-active-bg, rgba(59, 130, 246, 0.1));
+}

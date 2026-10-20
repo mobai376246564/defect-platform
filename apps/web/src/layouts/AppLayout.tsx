@@ -29,7 +29,7 @@ import {
   Tooltip,
   type MenuProps,
 } from 'antd';
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useProjects, useTodos, useUnreadCount } from '../api/hooks';
 import { useAuth } from '../auth/AuthContext';
@@ -41,6 +41,15 @@ import { menuSection } from './section';
 const { Header, Sider, Content } = Layout;
 
 const COLLAPSE_KEY = 'defect.sider-collapsed';
+const LAST_PROJECT_KEY = 'defect.last-project';
+
+function readLastProject(): string | null {
+  try {
+    return localStorage.getItem(LAST_PROJECT_KEY);
+  } catch {
+    return null;
+  }
+}
 
 function readCollapsed(): boolean {
   try {
@@ -92,6 +101,21 @@ export function AppLayout() {
   const mobile = !screens.md;
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // 侧边栏的“项目”分组常驻：在项目页时用当前项目，其他页面用上次打开的项目
+  const [lastProject, setLastProject] = useState(readLastProject);
+  useEffect(() => {
+    if (!key) return;
+    setLastProject(key);
+    try {
+      localStorage.setItem(LAST_PROJECT_KEY, key);
+    } catch {
+      // 只是记住偏好
+    }
+  }, [key]);
+  const projectKey =
+    key ??
+    (projects.data?.some((p) => p.key === lastProject) ? lastProject : projects.data?.[0]?.key) ??
+    undefined;
 
   const section = menuSection(location.pathname);
   const setCollapsedSaved = (v: boolean) => {
@@ -123,51 +147,59 @@ export function AppLayout() {
       ),
     },
   ];
-  const projectItems: MenuProps['items'] = key
+  const projectItems: MenuProps['items'] = projectKey
     ? [
         {
           key: 'bugs',
           icon: chip(<BugOutlined />, '#3b82f6'),
-          label: <Link to={`/p/${key}/bugs`}>缺陷列表</Link>,
+          label: <Link to={`/p/${projectKey}/bugs`}>缺陷列表</Link>,
         },
         {
           key: 'board',
           icon: chip(<ProjectOutlined />, '#8b5cf6'),
-          label: <Link to={`/p/${key}/bugs/board`}>缺陷看板</Link>,
+          label: <Link to={`/p/${projectKey}/bugs/board`}>缺陷看板</Link>,
         },
         {
           key: 'reports',
           icon: chip(<PieChartOutlined />, '#06b6d4'),
-          label: <Link to={`/p/${key}/reports`}>统计报表</Link>,
+          label: <Link to={`/p/${projectKey}/reports`}>统计报表</Link>,
         },
         {
           key: 'settings',
           icon: chip(<SettingOutlined />, '#64748b'),
-          label: <Link to={`/p/${key}/settings`}>项目设置</Link>,
+          label: <Link to={`/p/${projectKey}/settings`}>项目设置</Link>,
         },
       ]
     : [];
-  const globalItems: MenuProps['items'] = [
-    {
-      key: 'projects',
-      icon: chip(<AppstoreOutlined />, '#10b981'),
-      label: <Link to="/projects">{user?.isSystemAdmin ? '项目管理' : '全部项目'}</Link>,
-    },
-    ...(user?.isSystemAdmin
-      ? [
-          {
-            key: 'users',
-            icon: chip(<TeamOutlined />, '#ec4899'),
-            label: <Link to="/admin/users">用户管理</Link>,
-          },
-          {
-            key: 'system',
-            icon: chip(<CloudSyncOutlined />, '#14b8a6'),
-            label: <Link to="/admin/system">系统更新</Link>,
-          },
-        ]
-      : []),
-  ];
+  // 全局功能只有系统管理员可见，入口只放在侧边栏
+  const globalItems: MenuProps['items'] = user?.isSystemAdmin
+    ? [
+        {
+          key: 'projects',
+          icon: chip(<AppstoreOutlined />, '#10b981'),
+          label: <Link to="/projects">项目管理</Link>,
+        },
+        {
+          key: 'users',
+          icon: chip(<TeamOutlined />, '#ec4899'),
+          label: (
+            <Link to="/admin/users" className="nav-label">
+              用户管理
+              {!!pendingUsers.data?.count && (
+                <Tooltip title={`${pendingUsers.data.count} 个注册待审核`}>
+                  <span className="nav-count mono">{pendingUsers.data.count}</span>
+                </Tooltip>
+              )}
+            </Link>
+          ),
+        },
+        {
+          key: 'system',
+          icon: chip(<CloudSyncOutlined />, '#14b8a6'),
+          label: <Link to="/admin/system">系统更新</Link>,
+        },
+      ]
+    : [];
   const selected = key
     ? [section]
     : location.pathname.startsWith('/todo')
@@ -179,7 +211,7 @@ export function AppLayout() {
           : location.pathname.startsWith('/projects')
             ? ['projects']
             : [];
-  const currentProject = projects.data?.find((p) => p.key === key);
+  const currentProject = projects.data?.find((p) => p.key === projectKey);
   const menu = (
     <Menu
       mode="inline"
@@ -189,7 +221,7 @@ export function AppLayout() {
       style={{ borderInlineEnd: 'none', paddingBlock: 4 }}
       items={[
         { type: 'group' as const, label: '工作台', children: workItems },
-        ...(key
+        ...(projectKey
           ? [
               {
                 type: 'group' as const,
@@ -198,7 +230,9 @@ export function AppLayout() {
               },
             ]
           : []),
-        { type: 'group' as const, label: '全局', children: globalItems },
+        ...(globalItems.length
+          ? [{ type: 'group' as const, label: '全局', children: globalItems }]
+          : []),
       ]}
     />
   );
@@ -256,11 +290,11 @@ export function AppLayout() {
           </span>
           {!mobile && '缺陷管理平台'}
         </Link>
-        {key && (
+        {projectKey && (
           // 顶栏始终是深色，切换器固定用深色主题，浅色模式下也看得清
           <ConfigProvider theme={themeConfig('dark')}>
             <Select
-              value={key}
+              value={projectKey}
               variant="filled"
               popupMatchSelectWidth={false}
               style={{ minWidth: mobile ? 120 : 200, maxWidth: 280 }}
@@ -279,18 +313,6 @@ export function AppLayout() {
           icon={mode === 'dark' ? <SunOutlined /> : <MoonOutlined />}
           onClick={toggle}
         />
-        {user?.isSystemAdmin && !mobile && (
-          <HeaderIcon
-            title={
-              pendingUsers.data?.count
-                ? `用户管理（${pendingUsers.data.count} 个注册待审核）`
-                : '用户管理'
-            }
-            icon={<TeamOutlined />}
-            count={pendingUsers.data?.count}
-            onClick={() => navigate('/admin/users')}
-          />
-        )}
         <HeaderIcon
           title="通知中心"
           icon={<BellOutlined />}
@@ -301,12 +323,6 @@ export function AppLayout() {
           menu={{
             items: [
               { key: 'me', label: '个人设置与 Claude Code 接入', onClick: () => navigate('/me') },
-              ...(user?.isSystemAdmin
-                ? [
-                    { key: 'users', label: '用户管理', onClick: () => navigate('/admin/users') },
-                    { key: 'system', label: '系统更新', onClick: () => navigate('/admin/system') },
-                  ]
-                : []),
               { type: 'divider' },
               { key: 'logout', label: '退出登录', onClick: logout },
             ],
