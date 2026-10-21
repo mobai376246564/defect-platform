@@ -36,7 +36,7 @@ interface MoreField {
   node: ReactNode;
 }
 
-/** 在缺陷列表里直接提单：常用字段在前，期望 / 实际结果等放在“更多信息”里 */
+/** 在缺陷列表里直接提单：常用字段在前，期望 / 实际结果等放在“更多信息”里（默认展开） */
 export function DefectCreateModal({
   projectKey,
   project,
@@ -193,16 +193,11 @@ export function DefectCreateModal({
       onCancel={() => !submitting && onClose()}
       maskClosable={false}
       destroyOnHidden={false}
-      styles={{
-        body: {
-          maxHeight: 'calc(100vh - 220px)',
-          overflowY: 'auto',
-          overflowX: 'hidden',
-          paddingRight: 4,
-        },
-      }}
+      // 靠上显示，高度随全部展开后的内容，不在正文里出滚动条；屏幕放不下时整个弹窗随页面滚动
+      style={{ top: 24, paddingBottom: 24 }}
     >
       <Form<FormValues>
+        className="defect-create-form"
         form={form}
         layout="vertical"
         requiredMark="optional"
@@ -259,6 +254,7 @@ export function DefectCreateModal({
           <Collapse
             ghost
             size="small"
+            defaultActiveKey={['more']}
             items={[
               {
                 key: 'more',

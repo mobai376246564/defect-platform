@@ -844,3 +844,45 @@ body.col-resizing {
 .cell-placeholder {
   color: var(--ant-color-text-quaternary, #999);
 }
+
+/* 新建缺陷的附件拖拽框：图标在左、两行说明在右，高度约为默认的一半 */
+.attachment-dragger.ant-upload-wrapper .ant-upload-drag .ant-upload-btn {
+  padding: 14px 16px;
+}
+
+.attachment-drop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  text-align: left;
+}
+
+.attachment-drop-icon {
+  flex: none;
+  font-size: 30px;
+  color: var(--accent);
+}
+
+.attachment-dragger.ant-upload-wrapper .ant-upload-drag .attachment-drop p.ant-upload-text {
+  margin: 0 0 2px;
+  font-size: 14px;
+}
+
+.attachment-dragger.ant-upload-wrapper .ant-upload-drag .attachment-drop p.ant-upload-hint {
+  margin: 0;
+  font-size: 12px;
+}
+
+/* 新建缺陷：全部字段默认展开，收紧表单项间距让常见屏幕一屏放下 */
+.defect-create-form .ant-form-item {
+  margin-bottom: 14px;
+}
+
+.defect-create-form
+  .ant-collapse-ghost
+  > .ant-collapse-item
+  > .ant-collapse-content
+  > .ant-collapse-content-box {
+  padding-block: 4px 0;
+}

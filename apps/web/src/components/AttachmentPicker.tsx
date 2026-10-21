@@ -40,14 +40,17 @@ export function AttachmentPicker({
           </Button>
         </Upload>
       ) : (
-        <Upload.Dragger {...props}>
-          <p className="ant-upload-drag-icon">
-            <InboxOutlined />
-          </p>
-          <p className="ant-upload-text">点击或拖拽上传截图、录屏、日志</p>
-          <p className="ant-upload-hint">
-            单个文件不超过 200 MB，最多 10 个；录屏建议标记问题出现的时间点
-          </p>
+        <Upload.Dragger {...props} className="attachment-dragger">
+          {/* 图标放在文字左边，拖拽框只占两行字的高度 */}
+          <div className="attachment-drop">
+            <InboxOutlined className="attachment-drop-icon" />
+            <div>
+              <p className="ant-upload-text">点击或拖拽上传截图、录屏、日志</p>
+              <p className="ant-upload-hint">
+                单个文件不超过 200 MB，最多 10 个；录屏建议标记问题出现的时间点
+              </p>
+            </div>
+          </div>
         </Upload.Dragger>
       )}
       {value.length > 0 && (
