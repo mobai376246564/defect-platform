@@ -5,6 +5,7 @@ import { ProjectAccessService } from '../projects/project-access.service';
 import { ReportsService, reportFilterSchema, type ReportFilter } from './reports.service';
 
 const REPORTS = [
+  'review',
   'trend',
   'distribution',
   'age',
@@ -13,6 +14,7 @@ const REPORTS = [
   'quality',
   'feedback',
   'claude',
+  'process',
 ] as const;
 type ReportName = (typeof REPORTS)[number];
 

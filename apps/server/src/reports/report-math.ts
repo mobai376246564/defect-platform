@@ -1,8 +1,8 @@
-import { REPORT_UTC_OFFSET_MINUTES, weekStart } from '@defect/shared';
+import { REPORT_UTC_OFFSET_MINUTES, monthStart, weekStart } from '@defect/shared';
 
 const DAY = 86_400_000;
 
-export type Granularity = 'day' | 'week';
+export type Granularity = 'day' | 'week' | 'month';
 
 export interface Count {
   /** 维度取值；未设置为空字符串 */
@@ -49,7 +49,9 @@ export function addDays(date: string, days: number): string {
   return new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY).toISOString().slice(0, 10);
 }
 
-/** 日期所属的统计桶：按日为当天，按周为当周周一。 */
+/** 日期所属的统计桶：按日为当天，按周为当周周一，按月为当月 1 日。 */
 export function bucketOf(date: string, granularity: Granularity): string {
-  return granularity === 'week' ? weekStart(date) : date;
+  if (granularity === 'week') return weekStart(date);
+  if (granularity === 'month') return monthStart(date);
+  return date;
 }

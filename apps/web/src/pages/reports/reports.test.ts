@@ -96,10 +96,10 @@ describe('chart options', () => {
 describe('report query', () => {
   it('keeps only valid filters from the URL', () => {
     const params = new URLSearchParams(
-      'tab=claude&from=2026-10-01&to=bad&granularity=month&moduleId=m1&severity=fatal',
+      'tab=claude&from=2026-10-01&to=bad&granularity=year&moduleId=m1&severity=fatal',
     );
     expect(currentTab(params)).toBe('claude');
     expect(reportQuery(params)).toEqual({ from: '2026-10-01', moduleId: 'm1', severity: 'fatal' });
-    expect(currentTab(new URLSearchParams('tab=nope'))).toBe('trend');
+    expect(currentTab(new URLSearchParams('tab=nope'))).toBe('review');
   });
 });

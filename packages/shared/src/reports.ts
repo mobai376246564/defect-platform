@@ -78,6 +78,74 @@ export function weekStart(date: string): string {
   return new Date(d.getTime() - back * DAY).toISOString().slice(0, 10);
 }
 
+/** YYYY-MM-DD 所在月的 1 日。 */
+export function monthStart(date: string): string {
+  return `${date.slice(0, 7)}-01`;
+}
+
+/** YYYY-MM-DD 所在月的最后一天。 */
+export function monthEnd(date: string): string {
+  const [y, m] = date.split('-').map(Number) as [number, number];
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+}
+
+function shiftDays(date: string, days: number): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY).toISOString().slice(0, 10);
+}
+
+export type ReviewPeriodKind = 'week' | 'month';
+
+/**
+ * 复盘周期：某天所在的自然周（周一～周日）或自然月；进行中的周期截止到今天，
+ * 与上一期的同样天数对比（如本周一～周三对比上周一～周三）。
+ */
+export function reviewPeriod(
+  kind: ReviewPeriodKind,
+  date: string,
+  today: string,
+): { from: string; to: string } {
+  const from = kind === 'week' ? weekStart(date) : monthStart(date);
+  const end = kind === 'week' ? shiftDays(from, 6) : monthEnd(from);
+  return { from, to: end < today ? end : today };
+}
+
+/**
+ * 复盘对比的上一期：时间段从某月 1 日开始且不跨月时取上个月的同一段（整月对整月），
+ * 否则取紧挨着的、天数相同的前一段（自然周对上周）。
+ */
+export function previousPeriod(from: string, to: string): { from: string; to: string } {
+  const days = dateRange(from, to).length;
+  if (from.endsWith('-01') && from.slice(0, 7) === to.slice(0, 7)) {
+    const prevFrom = monthStart(shiftDays(from, -1));
+    const prevEnd = monthEnd(prevFrom);
+    const sameSpan = shiftDays(prevFrom, days - 1);
+    return { from: prevFrom, to: to === monthEnd(to) || sameSpan > prevEnd ? prevEnd : sameSpan };
+  }
+  return { from: shiftDays(from, -days), to: shiftDays(from, -1) };
+}
+
+/** 复盘关注的高等级缺陷 */
+export const SERIOUS_SEVERITIES: readonly string[] = ['fatal', 'serious'];
+
+/** 无效缺陷的解决方式：重复、设计如此、描述不准确、无法重现、无需解决 */
+export const INVALID_RESOLUTIONS: readonly string[] = [
+  'duplicated',
+  'intentional_design',
+  'unclear_description',
+  'failed_to_recur',
+  'ignore',
+];
+/** 直接关闭为无效的状态：默认工作流的“不是bug”、经典工作流的“已拒绝” */
+export const INVALID_STATES: readonly string[] = ['not_bug', 'rejected'];
+
+/** 已关闭的缺陷是否为无效缺陷（提单质量口径）。 */
+export function isInvalidDefect(d: { resolution: string | null; status: string }): boolean {
+  return (
+    (d.resolution !== null && INVALID_RESOLUTIONS.includes(d.resolution)) ||
+    INVALID_STATES.includes(d.status)
+  );
+}
+
 /** 闭区间 [from, to] 内的每一天（YYYY-MM-DD）。 */
 export function dateRange(from: string, to: string): string[] {
   const out: string[] = [];

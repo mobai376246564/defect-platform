@@ -403,4 +403,120 @@ describe('reports (e2e)', () => {
       withoutClaude: { count: 1, avgResolveHours: 48, reopenRate: 1 },
     });
   });
+
+  it('buckets trends by month and reports reopen rate per developer', async () => {
+    const monthly = await report('trend', `${WEEK}&granularity=month`);
+    expect(monthly.points).toEqual([
+      { date: '2026-10-01', created: 3, resolved: 2, closed: 1, open: 2 },
+    ]);
+    const eff = await report('efficiency');
+    expect(eff.byPerson.rows.find((r: { key: string }) => r.key === dev.id)).toMatchObject({
+      reopened: 1,
+      reopenRate: 0.5,
+    });
+  });
+
+  it('builds the review overview against the previous period', async () => {
+    // 把 D1 “重新打开”的状态变更挪到窗口内（周三 13:00）
+    const d1 = await prisma.defect.findFirstOrThrow({ where: { projectId, code: codes.d1 } });
+    const reopen = await prisma.defectHistory.findFirstOrThrow({
+      where: { defectId: d1.id, field: 'status', oldValue: { equals: 'resolved' } },
+    });
+    await prisma.defectHistory.update({
+      where: { id: reopen.id },
+      data: { createdAt: new Date('2026-10-14T05:00:00Z') },
+    });
+
+    const r = await report('review');
+    expect(r.previous).toEqual({ from: '2026-10-05', to: '2026-10-11' });
+    expect(r.current).toEqual({
+      created: 3,
+      seriousCreated: 2,
+      resolved: 2,
+      closed: 1,
+      netChange: 2,
+      open: 2,
+      reopened: 1,
+      reopenRate: 0.5,
+      slaRate: 0.5,
+      avgResolveHours: 31,
+      invalidRate: 0,
+    });
+    expect(r.before).toMatchObject({ created: 0, open: 0, reopenRate: null, slaRate: null });
+    // D3 严重、未处理，从创建算起早已超过 3 个工作日的 SLA
+    expect(r.overdueCount).toBe(1);
+    expect(r.lists.overdue.items[0]).toMatchObject({ code: codes.d3, reason: 'sla' });
+    expect(r.lists.serious.items.map((d: { code: string }) => d.code)).toEqual([
+      codes.d1,
+      codes.d3,
+    ]);
+    expect(r.lists.reopened).toMatchObject({ total: 1, items: [{ code: codes.d1 }] });
+    expect(r.modules).toEqual(
+      expect.arrayContaining([
+        { key: moduleId, created: 1, prevCreated: 0, open: 0 },
+        { key: subModuleId, created: 1, prevCreated: 0, open: 1 },
+        { key: '', created: 1, prevCreated: 0, open: 1 },
+      ]),
+    );
+    expect(r.developers).toEqual([{ key: dev.id, resolved: 2, reopened: 1, reopenRate: 0.5 }]);
+
+    // 自然月：本月对比上月
+    const month = await report('review', 'from=2026-10-01&to=2026-10-31');
+    expect(month.previous).toEqual({ from: '2026-09-01', to: '2026-09-30' });
+  });
+
+  it('measures stage durations, invalid defects, reporters and verifiers', async () => {
+    // D4：重复提单，被直接拒绝（无效缺陷）
+    const d4 = (
+      await ctx.http
+        .post(`${base()}/defects`)
+        .set(auth(tester.token))
+        .send({ title: '重复的支付失败', severity: 'normal' })
+        .expect(201)
+    ).body.code as string;
+    await ctx.http
+      .post(`${base()}/defects/${d4}/transitions`)
+      .set(auth(tester.token))
+      .send({ transition: 'reject', values: { resolution: 'duplicated' } })
+      .expect(200);
+    await move(d4, {
+      createdAt: new Date('2026-10-13T01:00:00Z'),
+      closedAt: new Date('2026-10-16T01:00:00Z'),
+    });
+
+    const p = await report('process');
+    // D1：创建 → 开始 2h，开始 → 解决 47h，解决 → 关闭 24h，全程 73h（都在工作日）
+    expect(p.stages.total).toEqual({
+      key: '',
+      count: 1,
+      waitHours: 2,
+      fixHours: 47,
+      verifyHours: 24,
+      leadHours: 73,
+    });
+    expect(p.stages.rows).toEqual([expect.objectContaining({ key: 'fatal', count: 1 })]);
+    expect(p.outcome).toMatchObject({ closed: 2, invalid: 1, invalidRate: 0.5 });
+    expect(p.outcome.resolutions).toEqual(
+      expect.arrayContaining([
+        { key: 'fixed', count: 1 },
+        { key: 'duplicated', count: 1 },
+      ]),
+    );
+    expect(p.reporters).toEqual([
+      {
+        key: tester.id,
+        created: 4,
+        serious: 2,
+        closed: 2,
+        invalid: 1,
+        open: 2,
+        invalidRate: 0.5,
+      },
+    ]);
+    // D2 待验证（处理人为测试）；D1 由创建人验证
+    expect(p.verifiers).toEqual([
+      expect.objectContaining({ key: tester.id, waiting: 1, verified: 1, avgVerifyHours: 24 }),
+    ]);
+    expect(p.completeness).toMatchObject({ total: 1, moduleId: 1, versionFoundId: 1 });
+  });
 });

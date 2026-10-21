@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { ageBucketOf, dateRange, reportDate, slaOf, weekStart, workingMs } from './reports';
+import {
+  ageBucketOf,
+  dateRange,
+  isInvalidDefect,
+  monthEnd,
+  previousPeriod,
+  reportDate,
+  reviewPeriod,
+  slaOf,
+  weekStart,
+  workingMs,
+} from './reports';
 
 const HOUR = 3_600_000;
 
@@ -57,8 +68,77 @@ describe('date helpers', () => {
     expect(dateRange('2026-10-02', '2026-10-01')).toEqual([]);
   });
 
+  it('finds the last day of a month', () => {
+    expect(monthEnd('2026-02-10')).toBe('2026-02-28');
+    expect(monthEnd('2028-02-01')).toBe('2028-02-29');
+    expect(monthEnd('2026-12-31')).toBe('2026-12-31');
+  });
+
   it('has no SLA for low severities', () => {
     expect(slaOf('fatal')?.resolveMs).toBe(24 * HOUR);
     expect(slaOf('advice')).toBeUndefined();
+  });
+});
+
+describe('review periods', () => {
+  it('picks the natural week or month, capped at today', () => {
+    // 2026-10-21 是周三
+    expect(reviewPeriod('week', '2026-10-21', '2026-10-21')).toEqual({
+      from: '2026-10-19',
+      to: '2026-10-21',
+    });
+    expect(reviewPeriod('week', '2026-10-14', '2026-10-21')).toEqual({
+      from: '2026-10-12',
+      to: '2026-10-18',
+    });
+    expect(reviewPeriod('month', '2026-09-03', '2026-10-21')).toEqual({
+      from: '2026-09-01',
+      to: '2026-09-30',
+    });
+    expect(reviewPeriod('month', '2026-10-05', '2026-10-21')).toEqual({
+      from: '2026-10-01',
+      to: '2026-10-21',
+    });
+  });
+
+  it('compares a week with the same days of the week before', () => {
+    expect(previousPeriod('2026-10-12', '2026-10-18')).toEqual({
+      from: '2026-10-05',
+      to: '2026-10-11',
+    });
+    expect(previousPeriod('2026-10-19', '2026-10-21')).toEqual({
+      from: '2026-10-16',
+      to: '2026-10-18',
+    });
+  });
+
+  it('compares a month with the previous month', () => {
+    // 整月对整月，天数不同也取整月
+    expect(previousPeriod('2026-03-01', '2026-03-31')).toEqual({
+      from: '2026-02-01',
+      to: '2026-02-28',
+    });
+    expect(previousPeriod('2026-02-01', '2026-02-28')).toEqual({
+      from: '2026-01-01',
+      to: '2026-01-31',
+    });
+    // 进行中的月份对比上月同样的天数
+    expect(previousPeriod('2026-10-01', '2026-10-21')).toEqual({
+      from: '2026-09-01',
+      to: '2026-09-21',
+    });
+    expect(previousPeriod('2026-03-01', '2026-03-30')).toEqual({
+      from: '2026-02-01',
+      to: '2026-02-28',
+    });
+  });
+});
+
+describe('isInvalidDefect', () => {
+  it('treats invalid resolutions and rejected states as invalid', () => {
+    expect(isInvalidDefect({ resolution: 'duplicated', status: 'closed' })).toBe(true);
+    expect(isInvalidDefect({ resolution: null, status: 'not_bug' })).toBe(true);
+    expect(isInvalidDefect({ resolution: 'fixed', status: 'closed' })).toBe(false);
+    expect(isInvalidDefect({ resolution: 'fix_later', status: 'passed' })).toBe(false);
   });
 });

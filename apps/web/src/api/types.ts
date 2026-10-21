@@ -212,6 +212,8 @@ export interface NotificationPage extends Page<NotificationItem> {
 }
 
 /** 统计报表（方案 6.9），字段口径见服务端 ReportsService */
+export type Granularity = 'day' | 'week' | 'month';
+
 export interface CountItem {
   key: string;
   count: number;
@@ -220,7 +222,7 @@ export interface CountItem {
 export interface TrendReport {
   from: string;
   to: string;
-  granularity: 'day' | 'week';
+  granularity: Granularity;
   snapshotDays: number;
   points: { date: string; created: number; resolved: number; closed: number; open: number }[];
 }
@@ -268,6 +270,9 @@ export interface EfficiencyRow {
   avgResponseHours: number | null;
   resolveCount: number;
   avgResolveHours: number | null;
+  /** 时间段内解决的缺陷中被重新打开过的个数 */
+  reopened: number;
+  reopenRate: number | null;
   slaMet: number;
   slaTotal: number;
   slaRate: number | null;
@@ -287,7 +292,7 @@ export interface QualityStats {
 }
 
 export interface QualityReport {
-  granularity: 'day' | 'week';
+  granularity: Granularity;
   summary: QualityStats;
   points: (QualityStats & { date: string })[];
 }
@@ -302,7 +307,7 @@ export interface FeedbackStats {
 }
 
 export interface FeedbackReportData {
-  granularity: 'day' | 'week';
+  granularity: Granularity;
   summary: FeedbackStats & { createRate: number | null };
   points: (FeedbackStats & { date: string })[];
   top: {
@@ -323,7 +328,7 @@ export interface ClaudeGroup {
 }
 
 export interface ClaudeReport {
-  granularity: 'day' | 'week';
+  granularity: Granularity;
   summary: {
     resolved: number;
     withClaude: number;
@@ -333,6 +338,95 @@ export interface ClaudeReport {
   };
   compare: { withClaude: ClaudeGroup; withoutClaude: ClaudeGroup };
   points: { date: string; resolved: number; withClaude: number; ratio: number | null }[];
+}
+
+export interface ReviewKpis {
+  created: number;
+  seriousCreated: number;
+  resolved: number;
+  closed: number;
+  /** 新增 − 关闭 */
+  netChange: number;
+  /** 期末未关闭 */
+  open: number;
+  /** 期内被重新打开的缺陷数 */
+  reopened: number;
+  reopenRate: number | null;
+  slaRate: number | null;
+  avgResolveHours: number | null;
+  invalidRate: number | null;
+}
+
+export interface ReviewDefect {
+  code: string;
+  title: string;
+  status: string;
+  severity: string;
+  ownerIds: string[];
+  createdAt: string;
+  reopenCount: number;
+}
+
+export interface ReviewReport {
+  period: { from: string; to: string };
+  previous: { from: string; to: string };
+  current: ReviewKpis;
+  before: ReviewKpis;
+  overdueCount: number;
+  modules: { key: string; created: number; prevCreated: number; open: number }[];
+  developers: { key: string; resolved: number; reopened: number; reopenRate: number | null }[];
+  lists: {
+    serious: { total: number; items: ReviewDefect[] };
+    overdue: {
+      total: number;
+      items: (ReviewDefect & { reason: 'due' | 'sla'; overHours: number })[];
+    };
+    reopened: { total: number; items: ReviewDefect[] };
+  };
+}
+
+export interface StageRow {
+  /** 严重程度；合计行为空 */
+  key: string;
+  count: number;
+  waitHours: number | null;
+  fixHours: number | null;
+  verifyHours: number | null;
+  leadHours: number | null;
+}
+
+export interface ProcessReport {
+  stages: { rows: StageRow[]; total: StageRow };
+  outcome: {
+    closed: number;
+    invalid: number;
+    invalidRate: number | null;
+    /** 解决方式；未填写的为 status:状态 */
+    resolutions: CountItem[];
+  };
+  reporters: {
+    key: string;
+    created: number;
+    serious: number;
+    closed: number;
+    invalid: number;
+    open: number;
+    invalidRate: number | null;
+  }[];
+  verifiers: {
+    key: string;
+    waiting: number;
+    oldestWaitDays: number;
+    verified: number;
+    avgVerifyHours: number | null;
+  }[];
+  completeness: {
+    total: number;
+    rootCause: number;
+    bugType: number;
+    moduleId: number;
+    versionFoundId: number;
+  };
 }
 
 /** 自定义视图：query 保存列表页地址参数（筛选、排序、分组） */

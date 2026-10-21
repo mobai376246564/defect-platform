@@ -1,9 +1,12 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import {
   AGE_BUCKETS,
+  SERIOUS_SEVERITIES,
   SEVERITY,
   ageBucketOf,
   dateRange,
+  isInvalidDefect,
+  previousPeriod,
   reportDate,
   slaOf,
   workingMs,
@@ -31,7 +34,7 @@ export const reportFilterSchema = z.object({
   moduleId: z.uuid().optional(),
   versionId: z.uuid().optional(),
   severity: severitySchema.optional(),
-  granularity: z.enum(['day', 'week']).default('day'),
+  granularity: z.enum(['day', 'week', 'month']).default('day'),
   /** 分布报表：open 当前未关闭的缺陷；created 时间段内新建的缺陷 */
   scope: z.enum(['open', 'created']).default('open'),
 });
@@ -40,6 +43,20 @@ export type ReportFilter = z.infer<typeof reportFilterSchema>;
 const DEFAULT_DAYS = 30;
 const MAX_DAYS = 366;
 const SEVERITIES = Object.keys(SEVERITY);
+/** 复盘清单每张最多列出的缺陷数 */
+const REVIEW_LIST_LIMIT = 50;
+
+/** 复盘清单里的缺陷行 */
+const LIST_SELECT = {
+  id: true,
+  code: true,
+  title: true,
+  status: true,
+  severity: true,
+  ownerIds: true,
+  createdAt: true,
+  reopenCount: true,
+} satisfies Prisma.DefectSelect;
 
 interface Scope {
   where: Prisma.DefectWhereInput;
@@ -49,6 +66,12 @@ interface Scope {
   start: Date;
   end: Date;
   granularity: Granularity;
+}
+
+/** 时刻区间 [start, end) */
+interface Window {
+  start: Date;
+  end: Date;
 }
 
 /**
@@ -291,6 +314,7 @@ export class ReportsService {
           confirmedAt: true,
           startedAt: true,
           resolvedAt: true,
+          reopenCount: true,
         },
       }),
       this.prisma.defect.findMany({
@@ -303,6 +327,8 @@ export class ReportsService {
     type Acc = {
       response: number[];
       resolve: number[];
+      /** 时间段内解决的缺陷中被重新打开过的个数 */
+      reopened: number;
       slaMet: number;
       slaTotal: number;
       inHand: number;
@@ -316,7 +342,10 @@ export class ReportsService {
         const key = k ?? '';
         let a = acc.get(key);
         if (!a)
-          acc.set(key, (a = { response: [], resolve: [], slaMet: 0, slaTotal: 0, inHand: 0 }));
+          acc.set(
+            key,
+            (a = { response: [], resolve: [], reopened: 0, slaMet: 0, slaTotal: 0, inHand: 0 }),
+          );
         return a;
       };
       const total = get('__total__');
@@ -331,6 +360,7 @@ export class ReportsService {
           const sla = slaOf(d.severity);
           for (const t of targets) {
             t.resolve.push(ms);
+            if (d.reopenCount > 0) t.reopened++;
             if (sla) {
               t.slaTotal++;
               if (ms <= sla.resolveMs) t.slaMet++;
@@ -349,6 +379,8 @@ export class ReportsService {
         avgResponseHours: toHours(average(a.response)),
         resolveCount: a.resolve.length,
         avgResolveHours: toHours(average(a.resolve)),
+        reopened: a.reopened,
+        reopenRate: ratio(a.reopened, a.resolve.length),
         slaMet: a.slaMet,
         slaTotal: a.slaTotal,
         slaRate: ratio(a.slaMet, a.slaTotal),
@@ -536,6 +568,376 @@ export class ReportsService {
         ...b,
         ratio: ratio(b.withClaude, b.resolved),
       })),
+    };
+  }
+
+  /**
+   * 复盘概览：本期与上一期（previousPeriod）的核心指标对比、各模块新增对比、按人的重开情况，
+   * 以及三张清单：本期新增的致命 / 严重缺陷、当前超期的缺陷、本期被重新打开的缺陷。
+   * - 被重新打开 = 状态从“待验证 / 已完成”类别回到“未开始 / 进行中”类别，按状态变更记录统计；
+   * - 超期 = 未关闭且过了截止时间，或尚未解决且超过 SLA 解决时限（未确认的从创建算起，
+   *   否则没人理的缺陷永远不会超期）；超期看的是当前，不随时间段变化。
+   */
+  async review(ctx: ProjectContext, f: ReportFilter, now = new Date()) {
+    const s = await this.scope(ctx, f);
+    const previous = previousPeriod(s.from, s.to);
+    const cur: Window = { start: s.start, end: s.end };
+    const prev: Window = {
+      start: dayStart(previous.from),
+      end: dayStart(addDays(previous.to, 1)),
+    };
+    const within = (at: Date | null, w: Window): at is Date => !!at && at >= w.start && at < w.end;
+
+    const [defects, statusChanges] = await Promise.all([
+      this.prisma.defect.findMany({
+        where: s.where,
+        select: {
+          id: true,
+          status: true,
+          statusCategory: true,
+          severity: true,
+          resolution: true,
+          moduleId: true,
+          ownerIds: true,
+          developerId: true,
+          reopenCount: true,
+          dueAt: true,
+          createdAt: true,
+          confirmedAt: true,
+          resolvedAt: true,
+          closedAt: true,
+        },
+      }),
+      this.prisma.defectHistory.findMany({
+        where: { field: 'status', createdAt: { gte: prev.start, lt: cur.end }, defect: s.where },
+        select: { defectId: true, oldValue: true, newValue: true, createdAt: true },
+      }),
+    ]);
+
+    const categoryOf = new Map(ctx.workflow.states.map((st) => [st.key, st.category]));
+    const reopenedIn = (w: Window) => {
+      const ids = new Set<string>();
+      for (const h of statusChanges) {
+        if (!within(h.createdAt, w)) continue;
+        const from = categoryOf.get(String(h.oldValue));
+        const to = categoryOf.get(String(h.newValue));
+        if ((from === 'verifying' || from === 'done') && (to === 'todo' || to === 'doing')) {
+          ids.add(h.defectId);
+        }
+      }
+      return ids;
+    };
+
+    const kpis = (w: Window) => {
+      const created = defects.filter((d) => within(d.createdAt, w));
+      const resolved = defects.filter((d) => within(d.resolvedAt, w));
+      const closed = defects.filter((d) => d.statusCategory === 'done' && within(d.closedAt, w));
+      const resolveMs: number[] = [];
+      let slaMet = 0;
+      let slaTotal = 0;
+      for (const d of resolved) {
+        if (!d.confirmedAt || d.resolvedAt! < d.confirmedAt) continue;
+        const ms = workingMs(d.confirmedAt, d.resolvedAt!);
+        resolveMs.push(ms);
+        const sla = slaOf(d.severity);
+        if (sla) {
+          slaTotal++;
+          if (ms <= sla.resolveMs) slaMet++;
+        }
+      }
+      return {
+        created: created.length,
+        seriousCreated: created.filter((d) => SERIOUS_SEVERITIES.includes(d.severity)).length,
+        resolved: resolved.length,
+        closed: closed.length,
+        /** 新增 − 关闭 */
+        netChange: created.length - closed.length,
+        /** 期末未关闭（口径同趋势报表的存量） */
+        open: defects.filter(
+          (d) =>
+            d.createdAt < w.end &&
+            !(d.statusCategory === 'done' && d.closedAt && d.closedAt < w.end),
+        ).length,
+        reopened: reopenedIn(w).size,
+        reopenRate: ratio(resolved.filter((d) => d.reopenCount > 0).length, resolved.length),
+        slaRate: ratio(slaMet, slaTotal),
+        avgResolveHours: toHours(average(resolveMs)),
+        invalidRate: ratio(closed.filter(isInvalidDefect).length, closed.length),
+      };
+    };
+
+    const severityRank = (sev: string) => SEVERITIES.indexOf(sev);
+    type Overdue = {
+      d: (typeof defects)[number];
+      /** due：过了截止时间（日历时长）；sla：超过 SLA 解决时限（工作日时长） */
+      reason: 'due' | 'sla';
+      overHours: number;
+    };
+    const overdue = defects
+      .flatMap((d): Overdue[] => {
+        if (d.statusCategory === 'done') return [];
+        if (d.dueAt && d.dueAt < now) {
+          return [{ d, reason: 'due', overHours: toHours(now.getTime() - d.dueAt.getTime())! }];
+        }
+        const sla = slaOf(d.severity);
+        if (sla && !d.resolvedAt) {
+          const ms = workingMs(d.confirmedAt ?? d.createdAt, now);
+          if (ms > sla.resolveMs) {
+            return [{ d, reason: 'sla', overHours: toHours(ms - sla.resolveMs)! }];
+          }
+        }
+        return [];
+      })
+      .sort(
+        (a, b) =>
+          severityRank(a.d.severity) - severityRank(b.d.severity) || b.overHours - a.overHours,
+      );
+
+    const modules = new Map<
+      string,
+      { key: string; created: number; prevCreated: number; open: number }
+    >();
+    const moduleRow = (k: string | null) => {
+      const key = k ?? '';
+      let row = modules.get(key);
+      if (!row) modules.set(key, (row = { key, created: 0, prevCreated: 0, open: 0 }));
+      return row;
+    };
+    for (const d of defects) {
+      if (within(d.createdAt, cur)) moduleRow(d.moduleId).created++;
+      if (within(d.createdAt, prev)) moduleRow(d.moduleId).prevCreated++;
+      if (d.statusCategory !== 'done') moduleRow(d.moduleId).open++;
+    }
+
+    const developers = new Map<string, { key: string; resolved: number; reopened: number }>();
+    for (const d of defects) {
+      if (!within(d.resolvedAt, cur)) continue;
+      const key = d.developerId ?? d.ownerIds[0] ?? '';
+      const row = developers.get(key) ?? { key, resolved: 0, reopened: 0 };
+      row.resolved++;
+      if (d.reopenCount > 0) row.reopened++;
+      developers.set(key, row);
+    }
+
+    const serious = defects
+      .filter((d) => within(d.createdAt, cur) && SERIOUS_SEVERITIES.includes(d.severity))
+      .sort(
+        (a, b) =>
+          severityRank(a.severity) - severityRank(b.severity) ||
+          b.createdAt.getTime() - a.createdAt.getTime(),
+      );
+    const reopened = [...reopenedIn(cur)];
+    const listed = [
+      ...serious.slice(0, REVIEW_LIST_LIMIT).map((d) => d.id),
+      ...overdue.slice(0, REVIEW_LIST_LIMIT).map((o) => o.d.id),
+      ...reopened.slice(0, REVIEW_LIST_LIMIT),
+    ];
+    const rows = listed.length
+      ? await this.prisma.defect.findMany({
+          where: { id: { in: [...new Set(listed)] } },
+          select: LIST_SELECT,
+        })
+      : [];
+    const byId = new Map(rows.map(({ id, ...row }) => [id, row]));
+    const pick = (ids: string[]) =>
+      ids.slice(0, REVIEW_LIST_LIMIT).flatMap((id) => {
+        const row = byId.get(id);
+        return row ? [row] : [];
+      });
+
+    return {
+      period: { from: s.from, to: s.to },
+      previous,
+      current: kpis(cur),
+      before: kpis(prev),
+      overdueCount: overdue.length,
+      modules: [...modules.values()]
+        .filter((m) => m.created > 0 || m.prevCreated > 0)
+        .sort(
+          (a, b) =>
+            b.created - a.created || b.created - b.prevCreated - (a.created - a.prevCreated),
+        ),
+      developers: [...developers.values()]
+        .map((d) => ({ ...d, reopenRate: ratio(d.reopened, d.resolved) }))
+        .sort((a, b) => b.resolved - a.resolved),
+      lists: {
+        serious: { total: serious.length, items: pick(serious.map((d) => d.id)) },
+        overdue: {
+          total: overdue.length,
+          items: overdue.slice(0, REVIEW_LIST_LIMIT).flatMap((o) => {
+            const row = byId.get(o.d.id);
+            return row ? [{ ...row, reason: o.reason, overHours: o.overHours }] : [];
+          }),
+        },
+        reopened: { total: reopened.length, items: pick(reopened) },
+      },
+    };
+  }
+
+  /**
+   * 测试与流程：
+   * - 环节耗时：时间段内关闭的有效缺陷，等待处理（创建 → 开始处理）、修复（开始处理 → 首次解决）、
+   *   验证（首次解决 → 关闭，含被打回后的返工）与全程（创建 → 关闭），工作日计时；
+   * - 关闭结论：时间段内关闭的缺陷按解决方式分布（未填解决方式的按关闭时的状态）与无效缺陷率；
+   * - 提单质量：时间段内新建的缺陷按创建人统计，无效率 = 已关闭的缺陷中无效的比例；
+   * - 验证：当前待验证的缺陷按处理人统计积压与最久等待天数，
+   *   时间段内关闭的有效缺陷按验证人（未设置时为创建人）统计验证时长；
+   * - 数据完整度：时间段内关闭的有效缺陷各统计字段的填写率。
+   */
+  async process(ctx: ProjectContext, f: ReportFilter, now = new Date()) {
+    const s = await this.scope(ctx, f);
+    const window = { gte: s.start, lt: s.end };
+    const [closed, created, verifying] = await Promise.all([
+      this.prisma.defect.findMany({
+        where: { ...s.where, statusCategory: 'done', closedAt: window },
+        select: {
+          severity: true,
+          status: true,
+          resolution: true,
+          rootCause: true,
+          bugType: true,
+          moduleId: true,
+          versionFoundId: true,
+          reporterId: true,
+          verifierId: true,
+          createdAt: true,
+          startedAt: true,
+          resolvedAt: true,
+          closedAt: true,
+        },
+      }),
+      this.prisma.defect.findMany({
+        where: { ...s.where, createdAt: window },
+        select: {
+          reporterId: true,
+          severity: true,
+          statusCategory: true,
+          status: true,
+          resolution: true,
+        },
+      }),
+      this.prisma.defect.findMany({
+        where: { ...s.where, statusCategory: 'verifying' },
+        select: { id: true, ownerIds: true, resolvedAt: true },
+      }),
+    ]);
+    const valid = closed.filter((d) => !isInvalidDefect(d));
+
+    type Stage = { wait: number[]; fix: number[]; verify: number[]; lead: number[] };
+    const stages = new Map<string, Stage>();
+    const stageOf = (key: string) => {
+      let st = stages.get(key);
+      if (!st) stages.set(key, (st = { wait: [], fix: [], verify: [], lead: [] }));
+      return st;
+    };
+    const total = stageOf('');
+    for (const d of valid) {
+      const targets = [stageOf(d.severity), total];
+      const push = (key: keyof Stage, from: Date | null, to: Date | null) => {
+        if (!from || !to || to < from) return;
+        const ms = workingMs(from, to);
+        for (const t of targets) t[key].push(ms);
+      };
+      push('wait', d.createdAt, d.startedAt);
+      push('fix', d.startedAt, d.resolvedAt);
+      push('verify', d.resolvedAt, d.closedAt);
+      push('lead', d.createdAt, d.closedAt);
+    }
+    const stageRow = (key: string, st: Stage) => ({
+      key,
+      count: st.lead.length,
+      waitHours: toHours(average(st.wait)),
+      fixHours: toHours(average(st.fix)),
+      verifyHours: toHours(average(st.verify)),
+      leadHours: toHours(average(st.lead)),
+    });
+
+    type Reporter = {
+      key: string;
+      created: number;
+      serious: number;
+      closed: number;
+      invalid: number;
+      open: number;
+    };
+    const reporters = new Map<string, Reporter>();
+    for (const d of created) {
+      const key = d.reporterId ?? '';
+      let row = reporters.get(key);
+      if (!row)
+        reporters.set(key, (row = { key, created: 0, serious: 0, closed: 0, invalid: 0, open: 0 }));
+      row.created++;
+      if (SERIOUS_SEVERITIES.includes(d.severity)) row.serious++;
+      if (d.statusCategory === 'done') {
+        row.closed++;
+        if (isInvalidDefect(d)) row.invalid++;
+      } else row.open++;
+    }
+
+    // 待验证从最近一次进入当前状态算起（被打回后重新提交的不算上一轮的时间）
+    const enteredAt = new Map<string, Date>();
+    if (verifying.length) {
+      const latest = await this.prisma.defectHistory.groupBy({
+        by: ['defectId'],
+        where: { defectId: { in: verifying.map((d) => d.id) }, field: 'status' },
+        _max: { createdAt: true },
+      });
+      for (const r of latest) if (r._max.createdAt) enteredAt.set(r.defectId, r._max.createdAt);
+    }
+    type Verifier = { key: string; waiting: number; oldestWaitDays: number; verify: number[] };
+    const verifiers = new Map<string, Verifier>();
+    const verifierRow = (key: string) => {
+      let row = verifiers.get(key);
+      if (!row) verifiers.set(key, (row = { key, waiting: 0, oldestWaitDays: 0, verify: [] }));
+      return row;
+    };
+    for (const d of verifying) {
+      const since = enteredAt.get(d.id) ?? d.resolvedAt;
+      const days = since ? Math.floor((now.getTime() - since.getTime()) / 86_400_000) : 0;
+      for (const owner of d.ownerIds.length ? d.ownerIds : ['']) {
+        const row = verifierRow(owner);
+        row.waiting++;
+        row.oldestWaitDays = Math.max(row.oldestWaitDays, days);
+      }
+    }
+    for (const d of valid) {
+      if (!d.resolvedAt || !d.closedAt || d.closedAt < d.resolvedAt) continue;
+      verifierRow(d.verifierId ?? d.reporterId ?? '').verify.push(
+        workingMs(d.resolvedAt, d.closedAt),
+      );
+    }
+
+    const filled = (pick: (d: (typeof valid)[number]) => string | null) =>
+      valid.filter((d) => pick(d) !== null).length;
+    return {
+      stages: {
+        rows: SEVERITIES.filter((k) => stages.has(k)).map((k) => stageRow(k, stages.get(k)!)),
+        total: stageRow('', total),
+      },
+      outcome: {
+        closed: closed.length,
+        invalid: closed.length - valid.length,
+        invalidRate: ratio(closed.length - valid.length, closed.length),
+        // 未填解决方式的按关闭时的状态归类，如默认工作流的“测试通过 / 不是bug”
+        resolutions: countBy(closed, (d) => d.resolution ?? `status:${d.status}`),
+      },
+      reporters: [...reporters.values()]
+        .map((r) => ({ ...r, invalidRate: ratio(r.invalid, r.closed) }))
+        .sort((a, b) => b.created - a.created),
+      verifiers: [...verifiers.values()]
+        .map(({ verify, ...r }) => ({
+          ...r,
+          verified: verify.length,
+          avgVerifyHours: toHours(average(verify)),
+        }))
+        .sort((a, b) => b.waiting - a.waiting || b.verified - a.verified),
+      completeness: {
+        total: valid.length,
+        rootCause: filled((d) => d.rootCause),
+        bugType: filled((d) => d.bugType),
+        moduleId: filled((d) => d.moduleId),
+        versionFoundId: filled((d) => d.versionFoundId),
+      },
     };
   }
 

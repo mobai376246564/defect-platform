@@ -9,6 +9,7 @@ import type {
   AgeReport,
   ClaudeReport,
   FeedbackReportData,
+  Granularity,
   ProjectDetail,
   QualityReport,
   TrendReport,
@@ -48,8 +49,9 @@ export function duration(hours: number | null | undefined): string {
   return hours < 24 ? `${hours.toFixed(1)} 小时` : `${(hours / 24).toFixed(1)} 天`;
 }
 
-/** 日期轴标签：按日显示 MM-DD，按周显示“MM-DD 周”。 */
-export function axisDate(date: string, granularity: 'day' | 'week'): string {
+/** 日期轴标签：按日显示 MM-DD，按周显示“MM-DD 周”，按月显示 YYYY-MM。 */
+export function axisDate(date: string, granularity: Granularity): string {
+  if (granularity === 'month') return date.slice(0, 7);
   const md = date.slice(5);
   return granularity === 'week' ? `${md} 周` : md;
 }
@@ -211,6 +213,42 @@ export function versionOption(r: VersionReport): EChartsOption {
     xAxis: { type: 'category', data: r.rows.map((v) => v.name), ...AXIS },
     yAxis: { type: 'value', minInterval: 1, ...AXIS },
     series: severityStack(r.rows.map((v) => v.bySeverity)),
+  };
+}
+
+/** 环节耗时：每行一个严重程度，等待处理 / 修复 / 验证三段横向堆叠，最长的一段就是瓶颈。 */
+export function stageOption(
+  rows: { name: string; wait: number | null; fix: number | null; verify: number | null }[],
+): EChartsOption {
+  const stages = [
+    { key: 'wait', name: '等待处理' },
+    { key: 'fix', name: '修复' },
+    { key: 'verify', name: '验证' },
+  ] as const;
+  const ordered = [...rows].reverse();
+  return {
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      valueFormatter: (v) => duration(typeof v === 'number' ? v : null),
+    },
+    legend: LEGEND,
+    toolbox: TOOLBOX,
+    grid: GRID,
+    xAxis: {
+      type: 'value',
+      ...AXIS,
+      axisLabel: { ...AXIS.axisLabel, formatter: (v: number) => duration(v) },
+    },
+    yAxis: { type: 'category', data: ordered.map((r) => r.name), ...AXIS },
+    series: stages.map((s, i) => ({
+      name: s.name,
+      type: 'bar' as const,
+      stack: 'stage',
+      barMaxWidth: 22,
+      data: ordered.map((r) => r[s.key] ?? 0),
+      itemStyle: { color: SERIES_COLORS[i] },
+    })),
   };
 }
 
