@@ -385,11 +385,7 @@ export function MePage() {
                 输入下面的命令（把缺陷编号换成要修的那个），或者直接说“修复 APP-12”：
                 {code('/mcp__defects__fix_bug APP-12')}
               </li>
-              <li>
-                Claude
-                会先读取缺陷材料、分析根因并告诉你修复方案，你确认后它才改代码；修完后回写评论、流转状态。缺陷详情页右侧的“用
-                Claude Code 修复”可以一键复制该缺陷的命令。
-              </li>
+              <li>Claude 会先读取缺陷材料、分析根因并告诉你修复方案，你确认后它才改代码。</li>
               <li>
                 连不上时：确认电脑能打开{' '}
                 <Typography.Text code>{window.location.origin}</Typography.Text>
