@@ -90,9 +90,45 @@ sudo usermod -aG docker $USER   # 重新登录后生效
 docker compose version
 ```
 
+国内 CVM 拉 Docker Hub 的基础镜像（`node`、`nginx`）容易超时，配置腾讯云内网镜像加速：
+
+```bash
+sudo mkdir -p /etc/docker
+echo '{ "registry-mirrors": ["https://mirror.ccs.tencentyun.com"] }' | sudo tee /etc/docker/daemon.json
+sudo systemctl restart docker
+```
+
 安全组只放行：CLB 访问 80、运维 IP 访问 22。
 
-## 4. 配置与启动
+## 4. 镜像说明
+
+仓库里与容器部署有关的文件都在 `deploy/` 下，交给运维的就是这几个：
+
+| 文件                             | 作用                                                                                            |
+| -------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `deploy/server.Dockerfile`       | 服务端镜像（API、MCP、后台任务）。`--target runtime` 是运行镜像，`--target migrator` 是迁移镜像 |
+| `deploy/web.Dockerfile`          | 网页镜像：Nginx 托管前端页面，并把 `/api` 反代到 server                                         |
+| `deploy/nginx.conf`              | 网页镜像里的 Nginx 配置（缓存、200 MB 上传、10 分钟超时）                                       |
+| `deploy/docker-compose.prod.yml` | 单台 CVM 的编排：migrate → server → web                                                         |
+| `deploy/.env.production.example` | 配置模板，复制为 `deploy/.env.production` 填写（不要提交）                                      |
+| `.dockerignore`                  | 构建时排除 node_modules、本地数据等                                                             |
+
+三个镜像都在**仓库根目录**构建（构建上下文是整个仓库，因为前后端共用 `packages/shared`）：
+
+```bash
+docker build -f deploy/server.Dockerfile --target runtime  -t defect-server:<版本> .
+docker build -f deploy/server.Dockerfile --target migrator -t defect-migrator:<版本> .
+docker build -f deploy/web.Dockerfile -t defect-web:<版本> .
+```
+
+- 国内网络构建加上镜像源参数：`--build-arg NPM_REGISTRY=https://mirrors.cloud.tencent.com/npm/ --build-arg DEBIAN_MIRROR=http://mirrors.tencentyun.com --build-arg FFMPEG_BINARIES_URL=https://registry.npmmirror.com/-/binary/ffmpeg-static`（用 compose 构建时这几个值从 `.env.production` 读取）。`mirrors.tencentyun.com` 是 CVM 内网源，在腾讯云外构建（如 CI、本机）改用 `http://mirrors.aliyun.com`；Debian 源必须用 http 且不能跳转到 https。
+- 在 Mac（Apple 芯片）上构建给 x86 的 CVM 用，要加 `--platform linux/amd64`。
+- 服务端容器以非 root 用户运行，自带健康检查（`/api/v1/health`）；`migrate` 每次启动都执行 `prisma migrate deploy` 与初始化管理员，执行完退出。
+- 数据库迁移会执行 `CREATE EXTENSION IF NOT EXISTS pg_trgm`（模糊搜索的索引）。TencentDB 上如果 `defect` 账号没有权限，先在控制台「插件管理」里给 `defect` 库安装 `pg_trgm`。
+
+## 5. 配置与启动
+
+**方式一：在 CVM 上直接构建（最简单）**
 
 ```bash
 git clone <仓库地址> defect-platform && cd defect-platform
@@ -102,13 +138,31 @@ docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.producti
 docker compose -f deploy/docker-compose.prod.yml logs -f server
 ```
 
+**方式二：CI 构建并推送到腾讯云容器镜像服务 TCR，CVM 只拉镜像（正式环境推荐）**
+
+```bash
+# CI 或构建机上，在仓库根目录
+docker login ccr.ccs.tencentyun.com --username <账号 ID>
+REG=ccr.ccs.tencentyun.com/<命名空间>
+TAG=$(git rev-parse --short HEAD)
+docker build -f deploy/server.Dockerfile --target runtime  -t $REG/defect-server:$TAG .
+docker build -f deploy/server.Dockerfile --target migrator -t $REG/defect-migrator:$TAG .
+docker build -f deploy/web.Dockerfile -t $REG/defect-web:$TAG .
+docker push $REG/defect-server:$TAG && docker push $REG/defect-migrator:$TAG && docker push $REG/defect-web:$TAG
+
+# CVM 上：.env.production 里设置 IMAGE_REGISTRY=$REG、IMAGE_TAG=$TAG，然后
+docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.production pull
+docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.production up -d
+```
+
 - `migrate` 服务先执行 `prisma migrate deploy` 与初始化管理员，成功后 `server` 才启动。
 - 生成密钥：`openssl rand -base64 48`（JWT_SECRET）、`openssl rand -hex 32`（INGEST_HMAC_SECRET）。
+- `TRUST_PROXY_HOPS=2`：请求经过 CLB 和容器里的 Nginx 两层代理，服务端据此取真实客户端 IP 做登录限流；填错会把所有人当成同一个 IP 一起限流。
+- 附件推荐存 COS（`STORAGE_DRIVER=cos`）。没有 COS 时可用 `STORAGE_DRIVER=local`，附件存在数据卷 `server-data` 里，需要自己备份这个卷，并设置 `LOCAL_STORAGE_SECRET`。
 - 健康检查：`curl http://localhost/api/v1/health` 返回 `{"status":"ok"}`。
+- 容器部署不使用管理后台的「系统更新」（那是单机 pm2 部署的在线更新），升级按第 10 节换镜像。
 
-> 正式环境建议镜像在 CI 中构建并推送到腾讯云容器镜像服务 TCR，CVM 上只 `pull` 与 `up`，避免在生产机器上编译。
-
-## 5. CLB 与 HTTPS
+## 6. CLB 与 HTTPS
 
 1. 创建应用型 CLB，添加 HTTPS:443 监听器，绑定证书。
 2. 转发规则：域名 `defects.example.com`、路径 `/` → 后端 CVM 80 端口。
@@ -116,7 +170,7 @@ docker compose -f deploy/docker-compose.prod.yml logs -f server
 4. 再加一个 HTTP:80 监听器，重定向到 HTTPS。
 5. 如需限制访问，可在 CLB 或 WAF 上配置公司出口 IP 白名单；注意开发者在家办公时的 MCP 访问。
 
-## 6. SCF：COS 事件转发（方案 5.4 ③）
+## 7. SCF：COS 事件转发（方案 5.4 ③）
 
 1. 新建函数：运行环境 Node.js 18+，代码上传 `deploy/scf-cos-forwarder/index.js`，执行方法 `index.main_handler`，超时 10 秒。
 2. 环境变量：`PLATFORM_URL=https://defects.example.com`、`INGEST_HMAC_SECRET=<与平台相同>`。
@@ -124,7 +178,7 @@ docker compose -f deploy/docker-compose.prod.yml logs -f server
 4. 触发器：COS 触发，存储桶选择上面的桶，事件 `cos:ObjectCreated:*`，前缀 `feedback/`，后缀 `manifest.json`。
 5. 验证：在本地 `apps/server` 目录配置 `STORAGE_DRIVER=cos` 后执行 `npx tsx scripts/simulate-feedback.ts --no-event`，几秒内平台应出现新缺陷（经 SCF 转发）；关闭触发器再执行一次，10 分钟内由对账任务补单。
 
-## 7. 在 GitHub/GitLab 配置 Webhook（方案 7.7）
+## 8. 在 GitHub/GitLab 配置 Webhook（方案 7.7）
 
 配置后，平台按分支名、提交信息、MR 标题里的缺陷编号自动关联 branch / commit / MR；MR 合并时，处于「待代码审核」的缺陷以系统身份流转为「已解决」并指派给验证人，评论中记录 MR 链接。其他状态的缺陷只关联、不流转。若在「项目设置 → 版本」里选了「当前迭代版本」，自动解决时会把它填为缺陷的修复版本（已手动填过的不覆盖）；发版后记得切换到下一个迭代版本。每个项目单独配置。
 
@@ -146,7 +200,7 @@ docker compose -f deploy/docker-compose.prod.yml logs -f server
 
 > 腾讯工蜂与 GitLab 的 Webhook 格式相近，后续接入只需在 `apps/server/src/git-webhooks/` 新增一个适配器（实现 `GitProvider`）并加入 `GIT_PROVIDERS`。
 
-## 8. 上线后检查
+## 9. 上线后检查
 
 - [ ] 用管理员账号登录，创建项目、绑定 APP 包名、添加成员与模块
 - [ ] 网页提单并上传截图、录屏、日志，详情页可预览，录屏关键帧已生成
@@ -155,13 +209,13 @@ docker compose -f deploy/docker-compose.prod.yml logs -f server
 - [ ] APP 测试包提单后自动建单（或用 simulate-feedback 模拟）
 - [ ] 配置 Git Webhook 后，把一个缺陷推进到「待代码审核」，合并带编号的 MR，缺陷自动变为「已解决」
 
-## 9. 运维
+## 10. 运维
 
-| 事项     | 做法                                                                                                  |
-| -------- | ----------------------------------------------------------------------------------------------------- |
-| 日志     | `docker compose logs`；建议接入 CLS 日志服务                                                          |
-| 监控告警 | 云监控：CVM CPU/内存、数据库连接数；CLB 5xx；业务侧关注任务表 `Job` 中 `status='failed'` 的数量       |
-| 备份     | TencentDB 自动备份；COS 开启版本控制                                                                  |
-| 升级     | `git pull && docker compose ... up -d --build`，迁移会在 server 启动前自动执行                        |
-| 扩容     | 多实例部署时只让一个实例 `RUN_WORKER=true`，或单独部署 worker；附件与任务都在共享存储，服务本身无状态 |
-| 回滚     | 镜像按版本打标签，`image:` 指回上一版本；数据库迁移只做向后兼容的变更                                 |
+| 事项     | 做法                                                                                                                                  |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| 日志     | `docker compose logs`；建议接入 CLS 日志服务                                                                                          |
+| 监控告警 | 云监控：CVM CPU/内存、数据库连接数；CLB 5xx；业务侧关注任务表 `Job` 中 `status='failed'` 的数量                                       |
+| 备份     | TencentDB 自动备份；COS 开启版本控制                                                                                                  |
+| 升级     | 方式一：`git pull` 后 `docker compose ... up -d --build`；方式二：改 `IMAGE_TAG` 后 `pull` 再 `up -d`。迁移会在 server 启动前自动执行 |
+| 扩容     | 多实例部署时只让一个实例 `RUN_WORKER=true`，或单独部署 worker；附件与任务都在共享存储，服务本身无状态                                 |
+| 回滚     | 镜像按版本打标签，`IMAGE_TAG` 改回上一版本后 `up -d`；数据库迁移只做向后兼容的变更                                                    |

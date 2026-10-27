@@ -19,6 +19,11 @@ const envSchema = z
     /** 每个 IP 每分钟的请求上限（全局兜底）与登录 / 注册的上限；测试环境不限流 */
     RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(600),
     AUTH_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(10),
+    /**
+     * 服务端前面有几层反向代理，用来从 X-Forwarded-For 取真实客户端 IP（限流、访问日志按它算）。
+     * 单机 nginx 为 1；腾讯云 CLB → 容器 nginx → 服务端为 2。填少了所有人会被当成同一个 IP 一起限流。
+     */
+    TRUST_PROXY_HOPS: z.coerce.number().int().min(0).default(1),
 
     JWT_SECRET: z.string().min(16, 'JWT_SECRET 至少 16 位'),
     JWT_EXPIRES_IN: z.string().default('12h'),

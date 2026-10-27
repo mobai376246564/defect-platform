@@ -16,7 +16,7 @@ export function configureApp(app: INestApplication): void {
     credentials: false,
   });
   express.disable('x-powered-by');
-  express.set('trust proxy', 1);
+  express.set('trust proxy', env.TRUST_PROXY_HOPS);
   // 测试里不输出访问日志，避免刷屏
   if (env.NODE_ENV !== 'test') express.use(requestLog());
   app.enableShutdownHooks();

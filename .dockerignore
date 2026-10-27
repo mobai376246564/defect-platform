@@ -2,7 +2,9 @@
 **/dist
 **/coverage
 .data
+.releases
 .git
+.claude
 .env
 **/.env
 deploy/.env.production
