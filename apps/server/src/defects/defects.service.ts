@@ -55,6 +55,8 @@ export interface SystemDefectExtras {
   deviceInfo?: Prisma.InputJsonValue;
   logSummary?: string | null;
   fingerprint?: string | null;
+  /** 系统建单时代为记录的创建人（如 APP 提单按姓名匹配到的平台用户），同时作为默认验证人 */
+  reporterId?: string | null;
   /** 在建单的同一个事务里执行（如 APP 反馈记下已建单），与缺陷一起提交或一起回滚 */
   onCreated?: (tx: Prisma.TransactionClient, defect: Defect) => Promise<void>;
 }
@@ -113,7 +115,7 @@ export class DefectsService {
         data: { defectSeq: { increment: 1 } },
         select: { defectSeq: true },
       });
-      const reporterId = actorId(actor);
+      const reporterId = extras.reporterId ?? actorId(actor);
       const defect = await tx.defect.create({
         data: {
           projectId: project.id,
@@ -153,7 +155,7 @@ export class DefectsService {
           defectId: defect.id,
           field: 'created',
           newValue: defect.code,
-          operatorId: reporterId,
+          operatorId: actorId(actor),
           via,
         },
       });

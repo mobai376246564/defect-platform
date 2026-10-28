@@ -108,8 +108,8 @@ http {
   server {
     listen ${WEB_PORT};
     root ${dist};
-    # 网页提单在本地存储模式下经由服务端上传附件（最大 200 MB）
-    client_max_body_size 200m;
+    # APP 提单一次请求带全部附件（单个文件 200 MB、合计 500 MB），网页提单在本地存储模式下也经由服务端上传
+    client_max_body_size 512m;
 
     add_header X-Content-Type-Options nosniff always;
     add_header Referrer-Policy strict-origin-when-cross-origin always;

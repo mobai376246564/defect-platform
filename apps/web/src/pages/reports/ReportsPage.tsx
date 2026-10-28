@@ -1127,53 +1127,57 @@ function FeedbackTab({ project, query }: TabProps) {
               type="info"
               showIcon
               style={{ marginBottom: 16 }}
-              message="项目还没有绑定 APP 包名，APP 反馈不会统计到这里"
+              message="项目还没有绑定 APP 标识，APP 提单不会建到本项目；请在「项目设置 → APP 接入」中绑定"
             />
           )}
           <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
             <Col xs={12} md={6}>
-              <Stat title="APP 反馈" value={d.summary.total} />
+              <Stat title="APP 提单" value={d.summary.total} hint="时间段内收到的提交" />
             </Col>
             <Col xs={12} md={6}>
-              <Stat title="新建缺陷" value={d.summary.created} />
+              <Stat title="建单成功" value={d.summary.created} />
             </Col>
             <Col xs={12} md={6}>
-              <Stat title="合并到已有缺陷" value={d.summary.merged} />
+              <Stat title="建单失败" value={d.summary.failed} hint="原因见下方「最近失败」" />
             </Col>
             <Col xs={12} md={6}>
-              <Stat title="建单率" value={pct(d.summary.createRate)} hint="新建缺陷 ÷ 全部反馈" />
+              <Stat title="成功率" value={pct(d.summary.successRate)} hint="建单成功 ÷ 全部提交" />
             </Col>
           </Row>
-          <ChartCard title="反馈量与处理结果">
+          <ChartCard title="提单量与处理结果">
             <EChart option={feedbackOption(d)} />
           </ChartCard>
-          <ChartCard title="重复反馈最多的缺陷">
+          <ChartCard title="按 APP 统计">
             <Table
               size="small"
-              rowKey="code"
+              rowKey="appId"
               pagination={false}
-              dataSource={d.top}
+              dataSource={d.byApp}
+              locale={{ emptyText: '项目还没有绑定 APP 标识' }}
+              columns={[
+                { title: 'APP 标识', dataIndex: 'appId' },
+                { title: '提单', dataIndex: 'total', align: 'right' },
+                { title: '建单成功', dataIndex: 'created', align: 'right' },
+                { title: '建单失败', dataIndex: 'failed', align: 'right' },
+              ]}
+            />
+          </ChartCard>
+          <ChartCard title="最近失败">
+            <Table
+              size="small"
+              rowKey="reportId"
+              pagination={false}
+              dataSource={d.failures}
+              locale={{ emptyText: '时间段内没有失败的提交' }}
               columns={[
                 {
-                  title: '编号',
-                  dataIndex: 'code',
-                  width: 110,
-                  render: (c: string) => <Link to={`/p/${project.key}/bugs/${c}`}>{c}</Link>,
+                  title: '时间',
+                  dataIndex: 'receivedAt',
+                  width: 160,
+                  render: (v: string) => dayjs(v).format('YYYY-MM-DD HH:mm'),
                 },
-                { title: '标题', dataIndex: 'title', ellipsis: true },
-                {
-                  title: '状态',
-                  dataIndex: 'status',
-                  width: 110,
-                  render: (s: string) => <StatusTag value={s} workflow={project.workflow} />,
-                },
-                {
-                  title: '严重程度',
-                  dataIndex: 'severity',
-                  width: 96,
-                  render: (s: string) => <SeverityTag value={s} />,
-                },
-                { title: '反馈次数', dataIndex: 'feedbackCount', width: 90, align: 'right' },
+                { title: 'APP 标识', dataIndex: 'appId', width: 200 },
+                { title: '失败原因', dataIndex: 'error', ellipsis: true },
               ]}
             />
           </ChartCard>

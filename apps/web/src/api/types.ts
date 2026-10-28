@@ -297,28 +297,22 @@ export interface QualityReport {
   points: (QualityStats & { date: string })[];
 }
 
+/** APP 提单的处理结果计数 */
 export interface FeedbackStats {
   total: number;
+  /** 建单成功 */
   created: number;
-  merged: number;
-  archived: number;
   failed: number;
+  /** 正在处理 */
   pending: number;
 }
 
 export interface FeedbackReportData {
   granularity: Granularity;
-  summary: FeedbackStats & { createRate: number | null };
+  summary: FeedbackStats & { successRate: number | null };
   points: (FeedbackStats & { date: string })[];
-  top: {
-    code: string;
-    title: string;
-    status: string;
-    severity: string;
-    dupCount: number;
-    feedbackCount: number;
-    createdAt: string;
-  }[];
+  byApp: (FeedbackStats & { appId: string })[];
+  failures: { reportId: string; appId: string; error: string | null; receivedAt: string }[];
 }
 
 export interface ClaudeGroup {

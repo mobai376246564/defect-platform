@@ -93,7 +93,7 @@ async function main(): Promise<void> {
           key: 'APP',
           name: '示例 APP',
           description:
-            '演示项目：绑定包名 com.example.app，可用 scripts/simulate-feedback.ts 模拟 APP 反馈',
+            '演示项目：绑定 APP 标识 com.example.app，可用 scripts/simulate-app-defect.ts 模拟 APP 提单',
           appIds: ['com.example.app'],
           workflow: DEFAULT_WORKFLOW as unknown as Prisma.InputJsonValue,
           defaultOwnerId: ids['dev@example.com'],

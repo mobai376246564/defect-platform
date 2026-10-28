@@ -79,6 +79,20 @@ export class LocalStorage implements ObjectStorage {
     await writeFile(p, body);
   }
 
+  async putFile(key: string, localPath: string): Promise<void> {
+    // 先复制到同目录的临时文件再改名：复制中途失败不会留下残缺的“已上传”文件
+    const p = this.fullPath(key);
+    await mkdir(path.dirname(p), { recursive: true });
+    const tmp = `${p}.part-${randomBytes(4).toString('hex')}`;
+    try {
+      await copyFile(localPath, tmp, constants.COPYFILE_FICLONE);
+      await rename(tmp, p);
+    } catch (err) {
+      await unlink(tmp).catch(() => undefined);
+      throw err;
+    }
+  }
+
   /**
    * 流式写入：先写到同目录的临时文件，完整收到（且与声明的大小一致）后再改名，
    * 上传中断或超限时删除临时文件，不会留下被当成“已上传”的残缺文件。

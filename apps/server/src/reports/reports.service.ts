@@ -434,55 +434,58 @@ export class ReportsService {
     };
   }
 
-  /** 线上反馈：APP 反馈量与处理结果、建单率、重复反馈最多的缺陷。 */
+  /**
+   * APP 提单：项目绑定的各 APP 提交量、建单成功与失败、各 APP 的分布，以及最近的失败原因。
+   * 历史数据里“合并到已有缺陷”（merged）也算成功；pending 是正在处理的提交。
+   */
   async feedback(ctx: ProjectContext, f: ReportFilter) {
     const s = await this.scope(ctx, f);
     const appIds = ctx.project.appIds;
-    const [reports, top] = await Promise.all([
-      appIds.length
-        ? this.prisma.feedbackReport.findMany({
-            where: { appId: { in: appIds }, receivedAt: { gte: s.start, lt: s.end } },
-            select: { status: true, receivedAt: true },
-          })
-        : Promise.resolve([]),
-      this.prisma.defect.findMany({
-        where: { ...s.where, source: 'app' },
-        orderBy: [{ dupCount: 'desc' }, { createdAt: 'desc' }],
-        take: 10,
-        select: {
-          code: true,
-          title: true,
-          status: true,
-          severity: true,
-          dupCount: true,
-          createdAt: true,
-        },
-      }),
-    ]);
-    const STATUSES = ['created', 'merged', 'archived', 'failed', 'pending'] as const;
-    const empty = (): Record<string, number> => ({
-      ...Object.fromEntries(STATUSES.map((k) => [k, 0])),
-      total: 0,
-    });
-    const points = new Map<string, Record<string, number>>();
-    for (const day of dateRange(s.from, s.to)) {
-      points.set(bucketOf(day, s.granularity), empty());
-    }
+    const reports = appIds.length
+      ? await this.prisma.feedbackReport.findMany({
+          where: { appId: { in: appIds }, receivedAt: { gte: s.start, lt: s.end } },
+          select: { reportId: true, appId: true, status: true, error: true, receivedAt: true },
+          orderBy: { receivedAt: 'desc' },
+        })
+      : [];
+    type Tally = { total: number; created: number; failed: number; pending: number };
+    const empty = (): Tally => ({ total: 0, created: 0, failed: 0, pending: 0 });
+    const outcome = (status: string): keyof Omit<Tally, 'total'> =>
+      status === 'created' || status === 'merged'
+        ? 'created'
+        : status === 'failed'
+          ? 'failed'
+          : 'pending';
+    const points = new Map<string, Tally>();
+    for (const day of dateRange(s.from, s.to)) points.set(bucketOf(day, s.granularity), empty());
+    const byApp = new Map<string, Tally>(appIds.map((a) => [a, empty()]));
     const totals = empty();
     for (const r of reports) {
-      const p = points.get(bucketOf(reportDate(r.receivedAt), s.granularity));
-      const status = (STATUSES as readonly string[]).includes(r.status) ? r.status : 'pending';
-      for (const t of [p, totals]) {
+      const k = outcome(r.status);
+      for (const t of [
+        points.get(bucketOf(reportDate(r.receivedAt), s.granularity)),
+        byApp.get(r.appId),
+        totals,
+      ]) {
         if (!t) continue;
-        t[status]!++;
-        t.total!++;
+        t[k]++;
+        t.total++;
       }
     }
     return {
       granularity: s.granularity,
-      summary: { ...totals, createRate: ratio(totals.created!, totals.total!) },
+      summary: { ...totals, successRate: ratio(totals.created, totals.total) },
       points: [...points].map(([date, v]) => ({ date, ...v })),
-      top: top.map((d) => ({ ...d, feedbackCount: d.dupCount + 1 })),
+      byApp: [...byApp].map(([appId, v]) => ({ appId, ...v })),
+      failures: reports
+        .filter((r) => r.status === 'failed')
+        .slice(0, 10)
+        .map((r) => ({
+          reportId: r.reportId,
+          appId: r.appId,
+          error: r.error,
+          receivedAt: r.receivedAt,
+        })),
     };
   }
 

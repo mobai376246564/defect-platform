@@ -13,8 +13,7 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present && npm run test:scf",
-    "test:scf": "node --test deploy/scf-cos-forwarder/index.test.js",
+    "test": "npm run test --workspaces --if-present",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

@@ -48,7 +48,7 @@ const SETTINGS_TABS = [
   { key: 'fields', label: '字段显示', icon: <EyeOutlined /> },
   { key: 'modules', label: '模块与负责人', icon: <ApartmentOutlined /> },
   { key: 'versions', label: '版本', icon: <TagsOutlined /> },
-  { key: 'apps', label: 'APP 绑定', icon: <MobileOutlined /> },
+  { key: 'apps', label: 'APP 接入', icon: <MobileOutlined /> },
   { key: 'integration', label: '集成', icon: <ApiOutlined /> },
 ];
 
@@ -67,16 +67,6 @@ export function SettingsPage() {
         refresh();
       })
       .catch((e: Error) => message.error(e.message));
-
-  const saveApps = useMutation({
-    mutationFn: (appIds: string[]) =>
-      api(`/projects/${key}`, { method: 'PATCH', body: { appIds } }),
-    onSuccess: () => {
-      message.success('已保存');
-      refresh();
-    },
-    onError: (e: Error) => message.error(e.message),
-  });
 
   if (!project) return <Skeleton active />;
   const isAdmin = project.myRole === 'admin';
@@ -327,28 +317,7 @@ export function SettingsPage() {
             </Card>
           )}
 
-          {tab === 'apps' && (
-            <Card
-              title="APP 绑定"
-              extra={
-                <Typography.Text type="secondary">
-                  这些包名的 APP 反馈会自动建单到本项目
-                </Typography.Text>
-              }
-            >
-              <Space.Compact style={{ width: '100%' }}>
-                <Select
-                  mode="tags"
-                  open={false}
-                  disabled={!isAdmin}
-                  style={{ flex: 1 }}
-                  defaultValue={project.appIds}
-                  onChange={(v: string[]) => saveApps.mutate(v)}
-                  placeholder="com.example.app"
-                />
-              </Space.Compact>
-            </Card>
-          )}
+          {tab === 'apps' && <AppIntegrationCard project={project} editable={isAdmin} />}
 
           {tab === 'workflow' && <WorkflowSettings project={project} editable={isAdmin} />}
           {tab === 'fields' && <FieldSettings project={project} editable={isAdmin} />}
@@ -359,6 +328,70 @@ export function SettingsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * APP 接入：绑定 APP 标识（APP 提单时传的 appId），并给出提单接口地址。
+ * 一个标识只能绑定一个项目，服务端校验，冲突时保存失败并提示已绑定到哪个项目。
+ */
+function AppIntegrationCard({ project, editable }: { project: ProjectDetail; editable: boolean }) {
+  const { message } = App.useApp();
+  const qc = useQueryClient();
+  const endpoint = `${window.location.origin}/api/v1/app/defects`;
+  const save = useMutation({
+    mutationFn: (appIds: string[]) =>
+      api(`/projects/${project.key}`, { method: 'PATCH', body: { appIds } }),
+    onSuccess: () => message.success('已保存'),
+    onError: (e: Error) => message.error(e.message),
+    // 失败时也刷新，输入框回到服务端保存的值
+    onSettled: () => void qc.invalidateQueries({ queryKey: qk.project(project.key) }),
+  });
+  const copy = async (text: string) => {
+    if (await copyText(text)) message.success('已复制');
+    else message.warning({ content: `复制失败，请手动复制：${text}`, duration: 8 });
+  };
+
+  return (
+    <Card
+      title="APP 接入"
+      extra={
+        <Typography.Text type="secondary">APP 提交的缺陷按 APP 标识自动建到本项目</Typography.Text>
+      }
+    >
+      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <div>
+          <Typography.Text strong>绑定的 APP 标识</Typography.Text>
+          <Select
+            mode="tags"
+            open={false}
+            disabled={!editable || save.isPending}
+            style={{ width: '100%', marginTop: 6 }}
+            value={project.appIds}
+            onChange={(v: string[]) => save.mutate(v)}
+            placeholder="输入 APP 标识（如包名 com.bud.shop）后回车"
+          />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            一般填 APP 的包名或 Bundle ID，可以绑定多个（如 iOS
+            和安卓各一个）；一个标识只能绑定一个项目
+          </Typography.Text>
+        </div>
+        <div>
+          <Typography.Text strong>提单接口（发给 APP 开发）</Typography.Text>
+          <Space.Compact style={{ width: '100%', marginTop: 6 }}>
+            <Input readOnly value={`POST ${endpoint}`} />
+            <Button icon={<CopyOutlined />} onClick={() => void copy(endpoint)}>
+              复制
+            </Button>
+          </Space.Compact>
+          <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: '6px 0 0' }}>
+            multipart/form-data，一次请求传完：appId（上面绑定的标识，必填）、description（缺陷描述，必填）、
+            reporterName（提单人姓名，按姓名自动关联平台用户）、files（截图、录屏、日志，可多个）。
+            成功返回缺陷编号；完整字段与示例见仓库文档 docs/app-integration.md。
+          </Typography.Paragraph>
+        </div>
+      </Space>
+    </Card>
   );
 }
 

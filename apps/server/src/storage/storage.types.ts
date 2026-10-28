@@ -32,6 +32,8 @@ export interface ObjectStorage {
   downloadToFile(key: string, dest: string): Promise<void>;
   headObject(key: string): Promise<StoredObject | null>;
   putObject(key: string, body: Buffer, contentType?: string): Promise<void>;
+  /** 把本地文件写入存储（APP 提单的录屏等大文件，不整个读进内存） */
+  putFile(key: string, localPath: string, contentType?: string): Promise<void>;
   /** 删除对象（不存在的忽略），清理任务用 */
   deleteObjects(keys: string[]): Promise<void>;
   /** 列出某前缀下的对象 key；suffix 用于过滤（如 manifest.json），olderThan 只列出在该时间之前写入的 */

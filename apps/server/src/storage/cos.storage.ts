@@ -57,6 +57,16 @@ export class CosStorage implements ObjectStorage {
     await this.cos.putObject({ ...this.base(key), Body: body, ContentType: contentType });
   }
 
+  async putFile(key: string, localPath: string, contentType?: string): Promise<void> {
+    // 超过 20 MB 时 SDK 自动分块上传
+    await this.cos.uploadFile({
+      ...this.base(key),
+      FilePath: localPath,
+      SliceSize: 20 * 1024 * 1024,
+      ContentType: contentType,
+    });
+  }
+
   async deleteObjects(keys: string[]): Promise<void> {
     // 批量删除接口一次最多 1000 个
     for (let i = 0; i < keys.length; i += 1000) {

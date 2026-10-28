@@ -11,7 +11,7 @@ export const REPORT_TABS = [
   { key: 'efficiency', label: '处理效率' },
   { key: 'quality', label: '修复质量' },
   { key: 'process', label: '测试与流程' },
-  { key: 'feedback', label: '线上反馈' },
+  { key: 'feedback', label: 'APP 提单' },
   { key: 'claude', label: 'Claude 参与修复' },
 ] as const;
 export type ReportTab = (typeof REPORT_TABS)[number]['key'];

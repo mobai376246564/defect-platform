@@ -5,31 +5,30 @@
 ```
 开发者 Claude Code ──HTTPS──┐
 测试 / 浏览器 ─────HTTPS──┤
+各 APP 提单（接口）─HTTPS──┤
                           ▼
                  CLB（HTTPS 证书）
                           │ 80
                  CVM：Docker Compose
                  ├─ web（Nginx：静态页面 + 反代 /api）
-                 ├─ server（NestJS：API、MCP、后台任务）
+                 ├─ server（NestJS：API、APP 提单、MCP、后台任务）
                  └─ migrate（一次性：数据库迁移 + 初始化管理员）
                           │ 内网
-     TencentDB for PostgreSQL      COS 存储桶 ◀── APP 直传（STS）
-                                        │ 上传 manifest.json
-                                        ▼
-                                   SCF 云函数 ──签名事件──▶ server
+     TencentDB for PostgreSQL      COS 存储桶（附件：截图、录屏、日志）
 ```
+
+APP 通过 `POST /api/v1/app/defects` 把描述和附件一次性提交给平台，平台写入 COS 并建单，接口说明见 [app-integration.md](app-integration.md)。
 
 ## 0. 准备清单
 
 | 资源                     | 规格建议                              | 说明                          |
 | ------------------------ | ------------------------------------- | ----------------------------- |
-| 地域                     | 与 COS 桶相同，如广州 ap-guangzhou    | SCF 只能触发同地域 COS        |
-| 私有网络 VPC             | 1 个，含 1 个子网                     | CVM、数据库、SCF 同 VPC       |
+| 地域                     | 与 COS 桶相同，如广州 ap-guangzhou    | 内网访问 COS 更快且不收流量费 |
+| 私有网络 VPC             | 1 个，含 1 个子网                     | CVM、数据库同 VPC             |
 | CVM                      | 4 核 8 GB，Ubuntu 22.04，系统盘 50 GB | 运行 Docker                   |
 | TencentDB for PostgreSQL | 2 核 4 GB，PostgreSQL 16，双节点      | 开启自动备份，保留 7 天       |
 | COS 存储桶               | 私有读写                              | 测试、正式各一个              |
 | CLB                      | 应用型负载均衡 + SSL 证书             | 域名如 defects.example.com    |
-| SCF                      | Node.js 18 及以上                     | 转发 COS 事件                 |
 | 域名与证书               | 已备案域名 + 证书                     | 证书可在 SSL 证书服务免费申请 |
 
 ## 1. 数据库
@@ -39,12 +38,12 @@
 3. 安全组只放行 CVM 所在子网访问 5432。
 4. 记下内网地址，得到 `DATABASE_URL=postgresql://defect:<密码>@<内网IP>:5432/defect`。
 
-## 2. COS 存储桶与访问权限（方案 5.4 ②）
+## 2. COS 存储桶与访问权限
 
-1. 创建存储桶，如 `feedback-1250000000`，访问权限选择「私有读写」。
-2. 生命周期规则：`feedback/` 前缀 90 天转低频存储、180 天删除；`derived/` 前缀 180 天删除。
+1. 创建存储桶，如 `feedback-1250000000`，访问权限选择「私有读写」。目录约定：`feedback/` 为 APP 提单的附件，`web/` 为网页提单的附件，`derived/` 为缩略图、录屏关键帧。
+2. 生命周期规则：缺陷要永久保留，**不要**给 `feedback/`、`web/` 配置删除规则。可以按需配置 90 天后转低频存储以节省费用；`derived/` 可以随时重新生成，可配置 180 天删除。
 3. 跨域（CORS）：允许来源 `https://defects.example.com`，方法 `PUT, POST, GET, HEAD`，允许头 `*`，暴露头 `ETag`。（网页提单由浏览器直传 COS，需要此设置。）
-4. 在访问管理 CAM 创建两个子账号（仅编程访问）：
+4. 在访问管理 CAM 创建一个子账号（仅编程访问）：
 
    **defect-platform（给平台）**
 
@@ -68,6 +67,15 @@
            "name/cos:CompleteMultipartUpload"
          ],
          "resource": [
+           "qcs::cos:ap-guangzhou:uid/1250000000:feedback-1250000000/feedback/*",
+           "qcs::cos:ap-guangzhou:uid/1250000000:feedback-1250000000/web/*",
+           "qcs::cos:ap-guangzhou:uid/1250000000:feedback-1250000000/derived/*"
+         ]
+       },
+       {
+         "effect": "allow",
+         "action": ["name/cos:DeleteObject", "name/cos:DeleteMultipleObject"],
+         "resource": [
            "qcs::cos:ap-guangzhou:uid/1250000000:feedback-1250000000/web/*",
            "qcs::cos:ap-guangzhou:uid/1250000000:feedback-1250000000/derived/*"
          ]
@@ -77,9 +85,11 @@
    }
    ```
 
-   **feedback-sts（给 APP 服务端，用于签发 APP 上传凭证）**：只授予 `feedback/*` 的上传动作与 `sts:GetFederationToken`。
+   - `feedback/*`：平台收到 APP 提单后把附件写进去。
+   - `web/*`：网页提单时签发临时凭证，由浏览器直传。
+   - 删除权限只给 `web/`、`derived/`：每天清理没有挂到缺陷上的残留上传。缺陷附件不会被删除。
 
-5. 两个子账号的密钥放入 SSM 凭据管理，不要通过聊天工具或邮件传递。
+5. 子账号密钥放入 SSM 凭据管理，不要通过聊天工具或邮件传递。
 
 ## 3. CVM 与 Docker
 
@@ -156,11 +166,11 @@ docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.producti
 ```
 
 - `migrate` 服务先执行 `prisma migrate deploy` 与初始化管理员，成功后 `server` 才启动。
-- 生成密钥：`openssl rand -base64 48`（JWT_SECRET）、`openssl rand -hex 32`（INGEST_HMAC_SECRET）。
+- 生成密钥：`openssl rand -base64 48`（JWT_SECRET）。
 - `TRUST_PROXY_HOPS=2`：请求经过 CLB 和容器里的 Nginx 两层代理，服务端据此取真实客户端 IP 做登录限流；填错会把所有人当成同一个 IP 一起限流。
 - 附件推荐存 COS（`STORAGE_DRIVER=cos`）。没有 COS 时可用 `STORAGE_DRIVER=local`，附件存在数据卷 `server-data` 里，需要自己备份这个卷，并设置 `LOCAL_STORAGE_SECRET`。
 - 健康检查：`curl http://localhost/api/v1/health` 返回 `{"status":"ok"}`。
-- 容器部署不使用管理后台的「系统更新」（那是单机 pm2 部署的在线更新），升级按第 10 节换镜像。
+- 容器部署不使用管理后台的「系统更新」（那是单机 pm2 部署的在线更新），升级按第 9 节换镜像。
 
 ## 6. CLB 与 HTTPS
 
@@ -168,17 +178,10 @@ docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.producti
 2. 转发规则：域名 `defects.example.com`、路径 `/` → 后端 CVM 80 端口。
 3. 健康检查路径 `/api/v1/health`。
 4. 再加一个 HTTP:80 监听器，重定向到 HTTPS。
-5. 如需限制访问，可在 CLB 或 WAF 上配置公司出口 IP 白名单；注意开发者在家办公时的 MCP 访问。
+5. **APP 提单带大附件**：一次请求最大约 500 MB（单个文件 200 MB）。请把 CLB 监听器的「请求体大小上限」调到 512 MB 以上，后端请求超时调到 600 秒，否则大录屏会被 CLB 拒绝或中途断开。
+6. 如需限制访问，可在 CLB 或 WAF 上配置公司出口 IP 白名单。注意开发者在家办公时的 MCP 访问，以及 APP 提单接口 `/api/v1/app/defects` 要允许 APP 所在网络访问。
 
-## 7. SCF：COS 事件转发（方案 5.4 ③）
-
-1. 新建函数：运行环境 Node.js 18+，代码上传 `deploy/scf-cos-forwarder/index.js`，执行方法 `index.main_handler`，超时 10 秒。
-2. 环境变量：`PLATFORM_URL=https://defects.example.com`、`INGEST_HMAC_SECRET=<与平台相同>`。
-3. 网络：开启「私有网络」并选择平台所在 VPC 时，`PLATFORM_URL` 可填 CVM 内网地址，例如 `http://10.0.0.5`。
-4. 触发器：COS 触发，存储桶选择上面的桶，事件 `cos:ObjectCreated:*`，前缀 `feedback/`，后缀 `manifest.json`。
-5. 验证：在本地 `apps/server` 目录配置 `STORAGE_DRIVER=cos` 后执行 `npx tsx scripts/simulate-feedback.ts --no-event`，几秒内平台应出现新缺陷（经 SCF 转发）；关闭触发器再执行一次，10 分钟内由对账任务补单。
-
-## 8. 在 GitHub/GitLab 配置 Webhook（方案 7.7）
+## 7. 在 GitHub/GitLab 配置 Webhook（方案 7.7）
 
 配置后，平台按分支名、提交信息、MR 标题里的缺陷编号自动关联 branch / commit / MR；MR 合并时，处于「待代码审核」的缺陷以系统身份流转为「已解决」并指派给验证人，评论中记录 MR 链接。其他状态的缺陷只关联、不流转。若在「项目设置 → 版本」里选了「当前迭代版本」，自动解决时会把它填为缺陷的修复版本（已手动填过的不覆盖）；发版后记得切换到下一个迭代版本。每个项目单独配置。
 
@@ -194,22 +197,22 @@ docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.producti
    - Secret token：上面的密钥（平台比对 `X-Gitlab-Token`）
    - 触发：勾选 **Push events**（可限定分支）与 **Merge request events**
    - 开启 SSL verification；保存后用「Test → Push events」验证返回 200
-4. **网络**：Git 平台必须能访问 Webhook 地址。若第 5 节配置了 IP 白名单，需放行 GitHub 的 Webhook 出口 IP（见 `https://api.github.com/meta` 的 `hooks` 字段）或自建 GitLab 的出口 IP；自建 GitLab 访问内网地址时，需要管理员在 Admin → Settings → Network → Outbound requests 中允许。
+4. **网络**：Git 平台必须能访问 Webhook 地址。若第 6 节配置了 IP 白名单，需放行 GitHub 的 Webhook 出口 IP（见 `https://api.github.com/meta` 的 `hooks` 字段）或自建 GitLab 的出口 IP；自建 GitLab 访问内网地址时，需要管理员在 Admin → Settings → Network → Outbound requests 中允许。
 5. **团队约定**：提交信息写 `fix(APP-12): 修复支付后订单未刷新`，或分支命名 `fix/APP-12-pay-refresh`（大小写均可），MR 标题带上编号。分支名含编号时，该分支上的所有提交都会关联到该缺陷。
 6. **排查**：签名或 Token 不对、项目未生成密钥时返回 401；无法识别来源返回 400；ping、tag 推送、删除分支等事件返回 200 并带 `ignored: true`。响应体中的 `linked`、`transitioned` 列出本次关联与流转的缺陷，可在 Git 平台的投递记录中查看。
 
 > 腾讯工蜂与 GitLab 的 Webhook 格式相近，后续接入只需在 `apps/server/src/git-webhooks/` 新增一个适配器（实现 `GitProvider`）并加入 `GIT_PROVIDERS`。
 
-## 9. 上线后检查
+## 8. 上线后检查
 
-- [ ] 用管理员账号登录，创建项目、绑定 APP 包名、添加成员与模块
+- [ ] 用管理员账号登录，创建项目、在「项目设置 → APP 接入」绑定 APP 标识、添加成员与模块
 - [ ] 网页提单并上传截图、录屏、日志，详情页可预览，录屏关键帧已生成
 - [ ] 个人设置中创建 Token，按页面提示在 Claude Code 中执行 `claude mcp add`，`/mcp` 显示 defects 已连接
 - [ ] Claude Code 中执行 `/mcp__defects__fix_bug <缺陷编号>`，能读到描述、截图、日志
-- [ ] APP 测试包提单后自动建单（或用 simulate-feedback 模拟）
+- [ ] APP 测试包提单后自动建单，返回缺陷编号（没有 APP 时在 `apps/server` 目录执行 `npx tsx scripts/simulate-app-defect.ts --app <APP 标识> --base https://defects.example.com` 模拟）
 - [ ] 配置 Git Webhook 后，把一个缺陷推进到「待代码审核」，合并带编号的 MR，缺陷自动变为「已解决」
 
-## 10. 运维
+## 9. 运维
 
 | 事项     | 做法                                                                                                                                  |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------- |

@@ -216,10 +216,10 @@ function ProjectFormModal({
         </Form.Item>
         <Form.Item
           name="appIds"
-          label="绑定的 APP 包名"
-          extra="APP 反馈按包名自动建单到本项目，输入后回车"
+          label="绑定的 APP 标识"
+          extra="APP 提单时传的 appId（一般是包名），提交的缺陷自动建到本项目；输入后回车，可填多个"
         >
-          <Select mode="tags" placeholder="com.example.app" open={false} />
+          <Select mode="tags" placeholder="com.bud.shop" open={false} />
         </Form.Item>
       </Form>
     </Modal>

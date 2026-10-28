@@ -37,8 +37,6 @@ const envSchema = z
     COS_REGION: z.string().default('ap-guangzhou'),
     COS_APPID: z.string().optional(),
 
-    INGEST_HMAC_SECRET: z.string().min(8, 'INGEST_HMAC_SECRET 至少 8 位'),
-    RECONCILE_INTERVAL_MINUTES: z.coerce.number().int().min(0).default(10),
     RUN_WORKER: boolString.default(true),
 
     /** 在线更新（仅 macOS / Linux 上的 pm2 单机部署）：管理后台检查新版本并一键更新 */
@@ -63,21 +61,12 @@ const envSchema = z
           ctx.addIssue({ code: 'custom', path: [k], message: `STORAGE_DRIVER=cos 时 ${k} 必填` });
       }
     }
-    if (env.NODE_ENV === 'production') {
-      if (env.JWT_SECRET.startsWith('change-me')) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['JWT_SECRET'],
-          message: '生产环境必须替换 JWT_SECRET',
-        });
-      }
-      if (env.INGEST_HMAC_SECRET.startsWith('change-me')) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['INGEST_HMAC_SECRET'],
-          message: '生产环境必须替换 INGEST_HMAC_SECRET',
-        });
-      }
+    if (env.NODE_ENV === 'production' && env.JWT_SECRET.startsWith('change-me')) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['JWT_SECRET'],
+        message: '生产环境必须替换 JWT_SECRET',
+      });
     }
   });
 

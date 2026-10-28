@@ -292,17 +292,15 @@ export function qualityOption(r: QualityReport): EChartsOption {
 }
 
 export const FEEDBACK_STATUS: {
-  key: 'created' | 'merged' | 'archived' | 'failed' | 'pending';
+  key: 'created' | 'failed' | 'pending';
   label: string;
 }[] = [
-  { key: 'created', label: '新建缺陷' },
-  { key: 'merged', label: '合并到已有' },
-  { key: 'archived', label: '归档' },
+  { key: 'created', label: '建单成功' },
   { key: 'failed', label: '建单失败' },
   { key: 'pending', label: '处理中' },
 ];
 
-/** APP 反馈量，按处理结果堆叠。 */
+/** APP 提单量，按处理结果堆叠。 */
 export function feedbackOption(r: FeedbackReportData): EChartsOption {
   return {
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },

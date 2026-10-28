@@ -2,8 +2,8 @@
 
 类 TAPD 的缺陷管理后台，打通三件事：
 
-1. **提单带证据**：测试在网页提单（截图、录屏、日志），线上用户在 APP 内提单，附件直传腾讯云 COS。
-2. **自动建单**：APP 反馈经 COS 事件 → SCF → 平台，幂等建单、提取日志摘要、按崩溃指纹去重，并有定时对账兜底。
+1. **提单带证据**：测试在网页提单（截图、录屏、日志），附件存腾讯云 COS。
+2. **APP 自动建单**：各 APP 调用提单接口，一次带上描述、截图、录屏、日志，平台按 APP 标识建到对应项目、自动提取日志摘要，同步返回缺陷编号（接口说明见 [docs/app-integration.md](docs/app-integration.md)）。
 3. **本地 Claude Code 修复**：平台提供 MCP Server，开发在本地 Claude Code 里输入缺陷编号，Claude 读取描述、截图、录屏关键帧、日志，结合本地代码分析修复，并回写结论。
 
 技术方案与调研见 [调研/缺陷管理平台技术方案报告.md](调研/缺陷管理平台技术方案报告.md)，部署见 [docs/deploy-tencent-cloud.md](docs/deploy-tencent-cloud.md)。
@@ -11,14 +11,14 @@
 ## 目录结构
 
 ```
-apps/server            NestJS 服务端：REST API、APP 反馈接入、后台任务、MCP Server
+apps/server            NestJS 服务端：REST API、APP 提单接口、后台任务、MCP Server
   prisma/              数据模型、迁移、初始化数据
-  scripts/             dev-db（嵌入式 PostgreSQL）、simulate-feedback（模拟 APP 反馈）
+  scripts/             dev-db（嵌入式 PostgreSQL）、simulate-app-defect（模拟 APP 提单）
   test/                e2e 测试（嵌入式 PostgreSQL + 官方 MCP 客户端）
 apps/web               React + Ant Design 管理后台
-packages/shared        前后端共享：字段枚举、工作流引擎、权限矩阵、manifest 校验
-deploy/                Dockerfile、Nginx、docker-compose、SCF 转发函数
-docs/                  部署手册
+packages/shared        前后端共享：字段枚举、工作流引擎、权限矩阵、报表口径
+deploy/                Dockerfile、Nginx、docker-compose、单机 pm2 部署
+docs/                  部署手册、APP 提单接入说明
 调研/                  技术方案报告
 ```
 
@@ -37,21 +37,21 @@ npm run dev:web                                    # 终端 3：http://localhost
 
 本地开发账号见 `apps/server/prisma/seed.ts`（仅限本地，生产环境用 `SEED_ADMIN_*` 环境变量创建管理员）。
 
-模拟一条 APP 反馈（在 `apps/server` 目录）：
+模拟一条 APP 提单（在 `apps/server` 目录；先在「项目设置 → APP 接入」绑定 `com.example.app`，初始化数据里的演示项目已绑定）：
 
 ```bash
-npx tsx scripts/simulate-feedback.ts
+npx tsx scripts/simulate-app-defect.ts --app com.example.app
 ```
 
 ## 常用命令
 
-| 命令                                   | 作用                                                               |
-| -------------------------------------- | ------------------------------------------------------------------ |
-| `npm test`                             | 全部测试（shared 单测、server 单测与 e2e、web 单测、SCF 转发函数） |
-| `npm run typecheck`                    | 全部类型检查                                                       |
-| `npm run lint` / `npm run format`      | ESLint / Prettier                                                  |
-| `npm run build`                        | 构建全部包                                                         |
-| `npm run db:migrate -w @defect/server` | 修改 `schema.prisma` 后生成迁移                                    |
+| 命令                                   | 作用                                                 |
+| -------------------------------------- | ---------------------------------------------------- |
+| `npm test`                             | 全部测试（shared 单测、server 单测与 e2e、web 单测） |
+| `npm run typecheck`                    | 全部类型检查                                         |
+| `npm run lint` / `npm run format`      | ESLint / Prettier                                    |
+| `npm run build`                        | 构建全部包                                           |
+| `npm run db:migrate -w @defect/server` | 修改 `schema.prisma` 后生成迁移                      |
 
 ## 在 Claude Code 中使用
 
@@ -71,5 +71,5 @@ MCP 工具：`search_defects`、`get_defect`、`get_screenshots`、`get_video_fr
 - **工作流可配置**：状态归属四个类别（未开始 / 进行中 / 待验证 / 已完成），统计与 SLA 按类别计算；流转校验角色、必填字段与说明，见 `packages/shared/src/workflow.ts`。
 - **对象存储抽象**：开发用本地磁盘（签名 URL 模拟 COS 预签名），生产用 COS + STS，业务代码只依赖 `ObjectStorage` 接口。
 - **任务队列**：基于 PostgreSQL `FOR UPDATE SKIP LOCKED`，带去重键与指数退避，MVP 不引入 Redis / 消息队列。
-- **APP 反馈幂等**：`reportId` 贯穿 COS 目录、manifest 与缺陷单；事件重复投递、对账补登都只建一单。
+- **APP 提单幂等**：APP 每次提交带一个 `reportId`，超时重试用同一个值，平台只建一单并返回原编号。
 - **权限**：服务端统一校验，前端只控制按钮显示；MCP 以 Token 所属用户的身份与角色执行。

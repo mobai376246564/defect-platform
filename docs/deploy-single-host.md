@@ -35,7 +35,6 @@ WEB_ORIGIN=http://<本机 IP>:5180
 DATABASE_URL=postgresql://defect:defect@localhost:5433/defect
 JWT_SECRET=<openssl rand -base64 48 的结果>
 LOCAL_STORAGE_SECRET=<openssl rand -hex 32 的结果>
-INGEST_HMAC_SECRET=<openssl rand -hex 32 的结果>
 ```
 
 嵌入式 PostgreSQL 在 Apple Silicon Mac 上是 x86_64 二进制，需要 Rosetta（`softwareupdate --install-rosetta`）。不想装 Rosetta 时改用 Homebrew 的 PostgreSQL，先初始化项目自己的数据目录，之后的 pm2 命令都带上 `PG_BIN_DIR`：
@@ -68,7 +67,7 @@ pm2 save                                 # 开机自启需再执行一次 pm2 st
 | 查看日志          | `pm2 logs defect-server`                                                                |
 | 更新代码          | 后台「系统更新」一键更新（见下节），或在仓库根目录执行 `bash deploy/pm2/self-update.sh` |
 | 停止              | `pm2 stop defect-web defect-server defect-db`                                           |
-| 模拟一条 APP 反馈 | `cd apps/server && npx tsx scripts/simulate-feedback.ts`                                |
+| 模拟一条 APP 提单 | `cd apps/server && npx tsx scripts/simulate-app-defect.ts --app <APP 标识>`             |
 
 ## 在线更新（系统更新）
 

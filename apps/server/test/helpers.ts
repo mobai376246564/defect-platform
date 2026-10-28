@@ -11,21 +11,17 @@ import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/bootstrap';
 import { PrismaService } from '../src/prisma/prisma.service';
 
-export const TEST_HMAC_SECRET = 'test-ingest-secret';
-
 /** 测试环境变量：本地存储放临时目录，后台任务由测试手动驱动（RUN_WORKER=false）。 */
 export function setTestEnv(): string {
   const storageDir = mkdtempSync(path.join(tmpdir(), 'defect-storage-'));
   Object.assign(process.env, {
     NODE_ENV: 'test',
     JWT_SECRET: 'test-jwt-secret-0123456789',
-    INGEST_HMAC_SECRET: TEST_HMAC_SECRET,
     STORAGE_DRIVER: 'local',
     LOCAL_STORAGE_DIR: storageDir,
     LOCAL_STORAGE_SECRET: 'test-local-secret',
     PUBLIC_BASE_URL: 'http://localhost:3999',
     RUN_WORKER: 'false',
-    RECONCILE_INTERVAL_MINUTES: '0',
   });
   return storageDir;
 }

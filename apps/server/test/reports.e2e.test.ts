@@ -174,7 +174,7 @@ describe('reports (e2e)', () => {
       },
     });
 
-    // APP 反馈：窗口内 4 条（2 条建单），窗口外 1 条
+    // APP 提单：窗口内 4 条（3 条建单成功，其中 1 条是历史上的“合并”），窗口外 1 条
     const appId = `com.reports.${key.toLowerCase()}`;
     const feedback = [
       ['created', '2026-10-13T02:00:00Z'],
@@ -190,6 +190,7 @@ describe('reports (e2e)', () => {
           appId,
           storagePrefix: 'x/',
           status: status!,
+          error: status === 'failed' ? '附件总大小超过 500 MB' : null,
           receivedAt: new Date(at!),
         },
       });
@@ -372,21 +373,23 @@ describe('reports (e2e)', () => {
     });
   });
 
-  it('summarizes APP feedback and the most duplicated defects', async () => {
+  it('summarizes APP submissions by outcome and by APP', async () => {
     const fb = await report('feedback');
-    expect(fb.summary).toMatchObject({
+    expect(fb.summary).toEqual({
       total: 4,
-      created: 2,
-      merged: 1,
+      created: 3,
       failed: 1,
-      createRate: 0.5,
+      pending: 0,
+      successRate: 0.75,
     });
     expect(fb.points.find((p: { date: string }) => p.date === '2026-10-13')).toMatchObject({
       total: 2,
-      created: 1,
-      merged: 1,
+      created: 2,
     });
-    expect(fb.top[0]).toMatchObject({ code: codes.d3, dupCount: 4, feedbackCount: 5 });
+    expect(fb.byApp).toEqual([
+      { appId: `com.reports.${key.toLowerCase()}`, total: 4, created: 3, failed: 1, pending: 0 },
+    ]);
+    expect(fb.failures).toEqual([expect.objectContaining({ error: '附件总大小超过 500 MB' })]);
   });
 
   it('compares defects fixed with and without Claude', async () => {

@@ -102,12 +102,13 @@ export class ProjectsService {
     if (!user.isSystemAdmin) throw new ForbiddenException('只有系统管理员可以创建项目');
     const exists = await this.prisma.project.findUnique({ where: { key: input.key } });
     if (exists) throw new ConflictException(`项目标识 ${input.key} 已存在`);
+    const appIds = await this.checkAppIds(input.appIds ?? [], null);
     return this.prisma.project.create({
       data: {
         key: input.key,
         name: input.name,
         description: input.description ?? '',
-        appIds: input.appIds ?? [],
+        appIds,
         workflow: DEFAULT_WORKFLOW as unknown as Prisma.InputJsonValue,
         members: { create: { userId: user.id, role: 'admin' } },
       },
@@ -189,11 +190,32 @@ export class ProjectsService {
       });
       if (!version) throw new BadRequestException('当前迭代版本必须是本项目的版本');
     }
+    if (patch.appIds) patch.appIds = await this.checkAppIds(patch.appIds, project.id);
     return this.prisma.project.update({
       where: { id: project.id },
       data: patch,
       omit: { webhookSecret: true },
     });
+  }
+
+  /**
+   * APP 标识（APP 提单时传的 appId）去重去空格；一个标识只能绑定一个项目，
+   * 否则平台不知道该把提单建到哪个项目。
+   */
+  private async checkAppIds(appIds: string[], projectId: string | null): Promise<string[]> {
+    const ids = [...new Set(appIds.map((a) => a.trim()).filter(Boolean))];
+    if (ids.length === 0) return ids;
+    const taken = await this.prisma.project.findFirst({
+      where: { appIds: { hasSome: ids }, ...(projectId ? { id: { not: projectId } } : {}) },
+      select: { name: true, appIds: true },
+    });
+    if (taken) {
+      const dup = ids.filter((a) => taken.appIds.includes(a)).join('、');
+      throw new ConflictException(
+        `APP 标识 ${dup} 已绑定到项目「${taken.name}」，一个标识只能绑定一个项目`,
+      );
+    }
+    return ids;
   }
 
   /**
