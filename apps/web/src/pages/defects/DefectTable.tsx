@@ -8,7 +8,7 @@ import {
   type SortSpec,
 } from '@defect/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { App, Button, Grid, Input, Space, Table, Tooltip, Typography } from 'antd';
+import { App, Button, Grid, Input, Space, Table } from 'antd';
 import type { ColumnsType, SortOrder } from 'antd/es/table/interface';
 import dayjs from 'dayjs';
 import { useState } from 'react';
@@ -211,7 +211,6 @@ export function DefectTableView({
           <EditableTitle
             title={title}
             href={`/p/${keyOf(row, p)}/bugs/${row.code}`}
-            dupCount={row.dupCount}
             onClick={openHandler(onOpen, row.code)}
             editable={canEdit(row, p)}
             onSave={(next) =>
@@ -431,14 +430,12 @@ export function DefectTableView({
 function EditableTitle({
   title,
   href,
-  dupCount,
   onClick,
   editable,
   onSave,
 }: {
   title: string;
   href: string;
-  dupCount: number;
   onClick: (e: React.MouseEvent) => void;
   editable: boolean;
   onSave: (title: string) => void;
@@ -471,11 +468,6 @@ function EditableTitle({
       <Link to={href} className="cell-title-link" data-open-defect onClick={onClick}>
         {title}
       </Link>
-      {dupCount > 0 && (
-        <Tooltip title={`又收到 ${dupCount} 条相同反馈`}>
-          <Typography.Text type="danger">+{dupCount}</Typography.Text>
-        </Tooltip>
-      )}
       {editable && (
         <Button
           size="small"

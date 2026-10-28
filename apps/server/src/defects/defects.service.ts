@@ -36,7 +36,7 @@ import type {
   UpdateDefectInput,
 } from './defects.dto';
 
-/** 操作来源：web 网页、claude 经 MCP、api 个人 Token 脚本、system 系统（Webhook、建单任务） */
+/** 操作来源：web 网页、claude 经 MCP、api 个人 Token 脚本、system 系统（Git Webhook、APP 提单） */
 export type Via = 'web' | 'claude' | 'api' | 'system';
 
 export type Actor = { kind: 'user'; user: AuthUser; role: ProjectRole } | { kind: 'system' };
@@ -54,12 +54,14 @@ export interface SystemDefectExtras {
   appCommit?: string | null;
   deviceInfo?: Prisma.InputJsonValue;
   logSummary?: string | null;
-  fingerprint?: string | null;
   /** 系统建单时代为记录的创建人（如 APP 提单按姓名匹配到的平台用户），同时作为默认验证人 */
   reporterId?: string | null;
   /** 在建单的同一个事务里执行（如 APP 反馈记下已建单），与缺陷一起提交或一起回滚 */
   onCreated?: (tx: Prisma.TransactionClient, defect: Defect) => Promise<void>;
 }
+
+/** 按处理人分组计数时每批并发的查询数 */
+const OWNER_COUNT_BATCH = 4;
 
 const TRACKED_FIELDS = [
   'title',
@@ -147,7 +149,6 @@ export class DefectsService {
           appCommit: extras.appCommit,
           deviceInfo: extras.deviceInfo,
           logSummary: extras.logSummary,
-          fingerprint: extras.fingerprint,
         },
       });
       await tx.defectHistory.create({
@@ -186,7 +187,6 @@ export class DefectsService {
           ownerIds: true,
           reporterId: true,
           source: true,
-          dupCount: true,
           dueAt: true,
           createdAt: true,
           updatedAt: true,
@@ -242,10 +242,22 @@ export class DefectsService {
       await this.prisma.projectMember.findMany({ where: { projectId }, select: { userId: true } })
     ).map((m) => m.userId);
     const and = (extra: Prisma.DefectWhereInput) => ({ AND: [where, extra] });
+    // 成员多时分批计数，每批 4 个查询，避免一次占满连接池影响其他请求
+    const countMembers = async (): Promise<number[]> => {
+      const out: number[] = [];
+      for (let i = 0; i < memberIds.length; i += OWNER_COUNT_BATCH) {
+        out.push(
+          ...(await Promise.all(
+            memberIds
+              .slice(i, i + OWNER_COUNT_BATCH)
+              .map((id) => this.prisma.defect.count({ where: and({ ownerIds: { has: id } }) })),
+          )),
+        );
+      }
+      return out;
+    };
     const [perMember, none, others] = await Promise.all([
-      Promise.all(
-        memberIds.map((id) => this.prisma.defect.count({ where: and({ ownerIds: { has: id } }) })),
-      ),
+      countMembers(),
       this.prisma.defect.count({ where: and({ ownerIds: { isEmpty: true } }) }),
       this.prisma.defect.count({
         where: and({ ownerIds: { isEmpty: false }, NOT: { ownerIds: { hasSome: memberIds } } }),

@@ -4,10 +4,11 @@
 # runtime：只含运行所需依赖；migrator：带 prisma CLI，执行数据库迁移与初始化管理员后退出。
 #
 # 国内网络构建时可传镜像源（都可不传）：
-#   --build-arg NPM_REGISTRY=https://mirrors.cloud.tencent.com/npm/
-#   --build-arg DEBIAN_MIRROR=http://mirrors.tencentyun.com   （腾讯云 CVM 内网源；在腾讯云外构建用 http://mirrors.aliyun.com）
+#   --build-arg NPM_REGISTRY=http://mirrors.tencentyun.com/npm/   （腾讯云 CVM 内网源；在腾讯云外用 https://registry.npmmirror.com）
+#   --build-arg DEBIAN_MIRROR=http://mirrors.tencentyun.com       （腾讯云 CVM 内网源；在腾讯云外用 http://mirrors.aliyun.com）
 #   Debian 源必须是 http 且不跳转 https：此时镜像里还没有 CA 证书
 #   --build-arg FFMPEG_BINARIES_URL=https://registry.npmmirror.com/-/binary/ffmpeg-static
+# npm 下载失败会自动重试几次，网络偶尔抖动不至于整次构建失败。
 
 ARG NODE_IMAGE=node:22-bookworm-slim
 
@@ -19,6 +20,8 @@ RUN if [ -n "$DEBIAN_MIRROR" ]; then \
     fi \
   && apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates tini \
   && rm -rf /var/lib/apt/lists/* \
+  && npm config set fetch-retries 5 && npm config set fetch-retry-mintimeout 20000 \
+  && npm config set fetch-retry-maxtimeout 120000 \
   && if [ -n "$NPM_REGISTRY" ]; then npm config set registry "$NPM_REGISTRY"; fi
 
 FROM base AS build

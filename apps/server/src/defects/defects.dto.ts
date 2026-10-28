@@ -22,11 +22,11 @@ const keysOf = <T extends Record<string, string>>(o: T) =>
   z.enum(Object.keys(o) as [keyof T & string, ...(keyof T & string)[]]);
 
 export const severitySchema = keysOf(SEVERITY);
-export const prioritySchema = keysOf(PRIORITY);
-export const frequencySchema = keysOf(FREQUENCY);
-export const resolutionSchema = keysOf(RESOLUTION);
-export const rootCauseSchema = keysOf(ROOT_CAUSE);
-export const bugTypeSchema = keysOf(BUG_TYPE);
+const prioritySchema = keysOf(PRIORITY);
+const frequencySchema = keysOf(FREQUENCY);
+const resolutionSchema = keysOf(RESOLUTION);
+const rootCauseSchema = keysOf(ROOT_CAUSE);
+const bugTypeSchema = keysOf(BUG_TYPE);
 
 /** 查询串里的多选：既接受 a,b 也接受重复参数 */
 const multi = <T extends z.ZodType<string, string>>(item: T) =>
@@ -43,7 +43,7 @@ const filterValueSchema = z.union([
   z.array(z.string().max(100)).max(50),
 ]);
 
-export const filterGroupSchema = z.object({
+const filterGroupSchema = z.object({
   logic: z.enum(['and', 'or']).default('and'),
   conditions: z
     .array(
@@ -170,7 +170,7 @@ export const groupsQuerySchema = listQuerySchema.extend({ groupBy: groupFieldSch
 export type GroupsQuery = z.infer<typeof groupsQuerySchema>;
 
 /** 批量修改：可改的字段与单个修改一致，状态按“切换到目标状态”处理 */
-export const bulkChangesSchema = z
+const bulkChangesSchema = z
   .object({
     status: z.string().min(1),
     severity: severitySchema,

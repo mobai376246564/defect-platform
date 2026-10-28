@@ -11,7 +11,7 @@ import { APP_ENV, type AppEnv } from './config/env';
 if (existsSync('.env')) process.loadEnvFile('.env');
 
 async function bootstrap(): Promise<void> {
-  // rawBody：COS 事件回调需要对原始请求体验签
+  // rawBody：GitHub Webhook 要对原始请求体验签（X-Hub-Signature-256）
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
   configureApp(app);
   const env = app.get<AppEnv>(APP_ENV);

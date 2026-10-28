@@ -1,27 +1,37 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
 import {
   SEVERITY,
   attachmentKindOf,
+  isParsableLog,
   type Frequency,
   type Severity,
   type WorkflowDefinition,
 } from '@defect/shared';
 import { DefectsService } from '../defects/defects.service';
-import type { Attachment, Prisma, Project } from '../generated/prisma/client';
-import { readLogArchive } from '../logs/log-archive';
-import { fingerprintOf, summarizeLogs } from '../logs/log-summary';
+import type { Attachment, FeedbackReport, Prisma, Project } from '../generated/prisma/client';
+import { readLogArchive, type LogFile } from '../logs/log-archive';
+import { summarizeLogs } from '../logs/log-summary';
 import { MediaService } from '../media/media.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { OBJECT_STORAGE, safeFileName, type ObjectStorage } from '../storage/storage.types';
+import {
+  OBJECT_STORAGE,
+  contentTypeOf,
+  safeFileName,
+  type ObjectStorage,
+} from '../storage/storage.types';
 
 /** APP 提单的文件限制：单个文件、文件个数、一次提交的总大小 */
 export const APP_FILE_MAX_BYTES = 200 * 1024 * 1024;
 export const APP_MAX_FILES = 10;
-export const APP_TOTAL_MAX_BYTES = 500 * 1024 * 1024;
+const APP_TOTAL_MAX_BYTES = 500 * 1024 * 1024;
 /** 超过这个大小的日志不解析（仍作为附件保存） */
 const MAX_LOG_BYTES = 30 * 1024 * 1024;
+/** 一次提交里所有日志解析后的文本总量上限，避免多个大日志包一起解压把内存撑满 */
+const MAX_LOG_TEXT_CHARS = 60 * 1024 * 1024;
+/** 同一个 reportId 正在处理时，超过这么久还没结束就认为处理中断（如服务重启），允许重试接手 */
+const STALE_PENDING_MS = 10 * 60_000;
 const TITLE_MAX = 60;
 
 /** APP 提交的缺陷内容（字段说明见 docs/app-integration.md） */
@@ -50,7 +60,6 @@ export interface UploadedFile {
   originalName: string;
   path: string;
   size: number;
-  mimeType?: string;
 }
 
 export interface AppDefectResult {
@@ -71,10 +80,10 @@ interface StoredFile {
 /**
  * APP 提单：APP 一次请求带上描述、APP 标识与截图 / 录屏 / 日志，平台同步建单并返回缺陷编号。
  * - 按 APP 标识找到绑定它的项目（项目设置里配置）；
- * - 文件写入对象存储，日志自动解析出摘要与异常特征；
- * - 提单人按姓名匹配平台用户，匹配上记为创建人；
- * - 每次提交都新建缺陷，不按崩溃特征合并；
- * - 以 reportId 幂等：APP 超时重试时不会重复建单。
+ * - 文件写入对象存储，日志自动解析出摘要；
+ * - 提单人、处理人按姓名匹配平台用户；
+ * - 每次提交都新建缺陷；
+ * - 以 reportId 幂等：先“认领”这条提交再处理，APP 超时重试或并发重试都不会重复建单。
  */
 @Injectable()
 export class IngestService {
@@ -87,6 +96,17 @@ export class IngestService {
     @Inject(OBJECT_STORAGE) private readonly storage: ObjectStorage,
   ) {}
 
+  /** 按 APP 标识找绑定的项目 */
+  private async projectOfApp(appId: string): Promise<Project> {
+    const project = await this.prisma.project.findFirst({ where: { appIds: { has: appId } } });
+    if (!project) {
+      throw new BadRequestException(
+        `APP 标识 ${appId} 还没有绑定到任何项目，请联系平台管理员在「项目设置 → APP 接入」中绑定`,
+      );
+    }
+    return project;
+  }
+
   async submit(input: AppDefectInput, files: UploadedFile[]): Promise<AppDefectResult> {
     const total = files.reduce((n, f) => n + f.size, 0);
     if (total > APP_TOTAL_MAX_BYTES) {
@@ -94,35 +114,19 @@ export class IngestService {
         `附件总大小超过 ${APP_TOTAL_MAX_BYTES / 1024 / 1024} MB，请压缩录屏或分开提交`,
       );
     }
-    const project = await this.prisma.project.findFirst({
-      where: { appIds: { has: input.appId } },
-    });
-    if (!project) {
-      throw new BadRequestException(
-        `APP 标识 ${input.appId} 还没有绑定到任何项目，请联系平台管理员在「项目设置 → APP 接入」中绑定`,
-      );
-    }
-
+    const project = await this.projectOfApp(input.appId);
     const reportId = input.reportId ?? randomUUID();
-    const previous = await this.prisma.feedbackReport.findUnique({ where: { reportId } });
-    if (previous?.defectId) {
-      const defect = await this.prisma.defect.findUnique({ where: { id: previous.defectId } });
-      if (defect) return this.result(reportId, project.key, defect.code, false);
-    }
-
     const storagePrefix = appPrefix(input.appId, new Date(), reportId);
     const meta = {
       ...input,
       files: files.map((f) => ({ name: f.originalName, size: f.size })),
     } as Prisma.InputJsonValue;
-    await this.prisma.feedbackReport.upsert({
-      where: { reportId },
-      create: { reportId, appId: input.appId, storagePrefix, manifest: meta },
-      update: { status: 'pending', error: null, storagePrefix, manifest: meta },
-    });
+
+    const claim = await this.claim(reportId, input.appId, storagePrefix, meta);
+    if (claim.done) return this.result(reportId, project.key, claim.done, false);
 
     try {
-      const { summary, fingerprint } = await this.analyzeLogs(files, input.appVersion);
+      const summary = await this.summarize(files);
       const stored = await this.store(storagePrefix, files);
       const reporter = await this.matchReporter(project, input.reporterName);
       const owners = await this.matchOwners(project, input.ownerNames ?? []);
@@ -131,6 +135,7 @@ export class IngestService {
         workflow: project.workflow as unknown as WorkflowDefinition,
         role: 'admin' as const,
       };
+      let attachments: Attachment[] = [];
       const defect = await this.defects.create(
         ctx,
         { kind: 'system' },
@@ -155,18 +160,18 @@ export class IngestService {
             extra: input.extra,
           } as Prisma.InputJsonValue,
           logSummary: summary,
-          fingerprint,
           reporterId: reporter.userId,
+          // 附件与“这条提交已建单”和缺陷在同一个事务里提交：不会出现建了单却没挂上附件
           onCreated: async (tx, d) => {
-            await tx.feedbackReport.update({ where: { reportId }, data: { defectId: d.id } });
+            attachments = await this.createAttachments(tx, d.id, stored);
+            await tx.feedbackReport.update({
+              where: { reportId },
+              data: { defectId: d.id, status: 'created', processedAt: new Date() },
+            });
           },
         },
       );
-      await this.attach(defect.id, stored);
-      await this.prisma.feedbackReport.update({
-        where: { reportId },
-        data: { status: 'created', processedAt: new Date() },
-      });
+      await this.media.enqueueFor(attachments);
       this.logger.log(`APP 提单 ${input.appId} → ${defect.code}（reportId ${reportId}）`);
       return this.result(reportId, project.key, defect.code, true);
     } catch (err) {
@@ -180,6 +185,58 @@ export class IngestService {
     }
   }
 
+  /**
+   * 认领一条提交：新 reportId 直接登记为处理中；已建过单的返回原缺陷编号；
+   * 失败过、或处理中断超过 10 分钟的，用“状态与接收时间没变”作条件改回处理中，只有一个请求能认领成功。
+   * 另一个请求正在处理同一个 reportId 时返回 409，APP 稍后用同一个 reportId 重试即可拿到编号。
+   */
+  private async claim(
+    reportId: string,
+    appId: string,
+    storagePrefix: string,
+    meta: Prisma.InputJsonValue,
+  ): Promise<{ done?: string }> {
+    const previous = await this.prisma.feedbackReport.findUnique({ where: { reportId } });
+    if (!previous) {
+      try {
+        await this.prisma.feedbackReport.create({
+          data: { reportId, appId, storagePrefix, meta },
+        });
+        return {};
+      } catch (err) {
+        if ((err as { code?: string }).code === 'P2002') throw this.inProgress();
+        throw err;
+      }
+    }
+    if (previous.defectId) {
+      const defect = await this.prisma.defect.findUnique({
+        where: { id: previous.defectId },
+        select: { code: true },
+      });
+      if (defect) return { done: defect.code };
+    }
+    if (isActive(previous)) throw this.inProgress();
+    const { count } = await this.prisma.feedbackReport.updateMany({
+      where: { reportId, status: previous.status, receivedAt: previous.receivedAt },
+      data: {
+        status: 'pending',
+        error: null,
+        defectId: null,
+        storagePrefix,
+        meta,
+        receivedAt: new Date(),
+        processedAt: null,
+      },
+    });
+    if (count === 0) throw this.inProgress();
+    // 上次失败时已写入的文件不再使用（新目录按今天的日期），由每日清理删除
+    return {};
+  }
+
+  private inProgress(): ConflictException {
+    return new ConflictException('这条提交正在处理中，请稍后用同一个 reportId 重试');
+  }
+
   private result(reportId: string, projectKey: string, code: string, created: boolean) {
     return {
       reportId,
@@ -189,41 +246,38 @@ export class IngestService {
     };
   }
 
-  /** 文件写入对象存储；同名文件自动加序号，避免互相覆盖 */
+  /** 文件写入对象存储；同名文件自动加序号，避免互相覆盖。类型按扩展名定，不信任客户端声明的 */
   private async store(prefix: string, files: UploadedFile[]): Promise<StoredFile[]> {
     const used = new Set<string>();
     const out: StoredFile[] = [];
     for (const f of files) {
       const name = uniqueName(safeFileName(f.originalName), used);
       const key = `${prefix}${name}`;
-      await this.storage.putFile(key, f.path, f.mimeType);
+      await this.storage.putFile(key, f.path, contentTypeOf(name));
       out.push({ key, name, size: f.size });
     }
     return out;
   }
 
-  /** 解析日志（.log / .txt / 压缩包）：生成摘要，并按异常类型与位置算出特征值，便于检索相同问题 */
-  private async analyzeLogs(
-    files: UploadedFile[],
-    appVersion: string | undefined,
-  ): Promise<{ summary: string | null; fingerprint: string | null }> {
-    const logs = files.filter(
-      (f) => attachmentKindOf(f.originalName) === 'log' && f.size <= MAX_LOG_BYTES,
-    );
-    if (logs.length === 0) return { summary: null, fingerprint: null };
-    const parsed = [];
+  /** 解析文本日志（.log / .txt / .json / zip 包）生成摘要；所有日志合计有文本量上限 */
+  private async summarize(files: UploadedFile[]): Promise<string | null> {
+    const logs = files.filter((f) => isParsableLog(f.originalName) && f.size <= MAX_LOG_BYTES);
+    if (logs.length === 0) return null;
+    const parsed: LogFile[] = [];
+    let chars = 0;
     for (const l of logs) {
+      if (chars >= MAX_LOG_TEXT_CHARS) break;
       try {
-        parsed.push(...(await readLogArchive(l.originalName, await readFile(l.path))));
+        for (const f of await readLogArchive(l.originalName, await readFile(l.path))) {
+          if (chars >= MAX_LOG_TEXT_CHARS) break;
+          parsed.push(f);
+          chars += f.text.length;
+        }
       } catch (err) {
         this.logger.warn(`日志 ${l.originalName} 解析失败：${(err as Error).message}`);
       }
     }
-    const { summary, exception } = summarizeLogs(parsed);
-    return {
-      summary: summary || null,
-      fingerprint: fingerprintOf(exception, appVersion ?? ''),
-    };
+    return summarizeLogs(parsed) || null;
   }
 
   /**
@@ -286,23 +340,27 @@ export class IngestService {
     return { ownerIds: ownerIds.length ? ownerIds : undefined, notes };
   }
 
-  /** 挂附件并排录屏抽帧任务 */
-  private async attach(defectId: string, stored: StoredFile[]): Promise<void> {
+  private async createAttachments(
+    tx: Prisma.TransactionClient,
+    defectId: string,
+    stored: StoredFile[],
+  ): Promise<Attachment[]> {
     const created: Attachment[] = [];
     for (const f of stored) {
       created.push(
-        await this.prisma.attachment.create({
+        await tx.attachment.create({
           data: {
             defectId,
             kind: attachmentKindOf(f.name),
             fileName: f.name,
             storageKey: f.key,
             size: f.size,
+            contentType: contentTypeOf(f.name),
           },
         }),
       );
     }
-    await this.media.enqueueFor(created);
+    return created;
   }
 
   private describe(
@@ -325,8 +383,13 @@ export class IngestService {
   }
 }
 
+/** 另一个请求正在处理（处理中且未超时） */
+function isActive(r: FeedbackReport): boolean {
+  return r.status === 'pending' && Date.now() - r.receivedAt.getTime() < STALE_PENDING_MS;
+}
+
 /** 标题：APP 没传时取描述的第一句话，最多 60 个字 */
-export function titleOf(input: { title?: string; description: string }): string {
+function titleOf(input: { title?: string; description: string }): string {
   if (input.title?.trim()) return input.title.trim().slice(0, 120);
   const first =
     input.description

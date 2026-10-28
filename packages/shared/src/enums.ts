@@ -90,13 +90,42 @@ export const ATTACHMENT_KIND = {
 } as const;
 export type AttachmentKind = keyof typeof ATTACHMENT_KIND;
 
-/** 根据文件名推断附件类型。 */
+const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'webp', 'gif'];
+const VIDEO_EXT = ['mp4', 'mov', 'webm', 'm4v'];
+const LOG_EXT = ['log', 'txt', 'zip', 'xlog', 'gz', 'json'];
+const AUDIO_EXT = ['m4a', 'mp3', 'wav', 'aac', 'amr'];
+
+/**
+ * 允许上传的附件扩展名（网页提单、APP 提单共用）：截图、录屏、日志、原始录音。
+ * 不在名单里的（如 html、svg）一律拒绝，避免被当成网页在平台域名下打开。
+ */
+export const ATTACHMENT_EXTENSIONS: readonly string[] = [
+  ...IMAGE_EXT,
+  ...VIDEO_EXT,
+  ...LOG_EXT,
+  ...AUDIO_EXT,
+];
+
+function extOf(fileName: string): string {
+  return fileName.toLowerCase().split('.').pop() ?? '';
+}
+
+export function isAllowedAttachment(fileName: string): boolean {
+  return ATTACHMENT_EXTENSIONS.includes(extOf(fileName));
+}
+
+/** 根据文件名推断附件类型；录音归为“其他”，原样保存。 */
 export function attachmentKindOf(fileName: string): AttachmentKind {
-  const ext = fileName.toLowerCase().split('.').pop() ?? '';
-  if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext)) return 'image';
-  if (['mp4', 'mov', 'webm', 'm4v'].includes(ext)) return 'video';
-  if (['log', 'txt', 'zip', 'xlog', 'gz'].includes(ext)) return 'log';
+  const ext = extOf(fileName);
+  if (IMAGE_EXT.includes(ext)) return 'image';
+  if (VIDEO_EXT.includes(ext)) return 'video';
+  if (LOG_EXT.includes(ext)) return 'log';
   return 'other';
+}
+
+/** 能按文本解析出异常摘要的日志（xlog、gz 是二进制格式，只保存不解析） */
+export function isParsableLog(fileName: string): boolean {
+  return ['log', 'txt', 'zip', 'json'].includes(extOf(fileName));
 }
 
 /** 严重程度排序权重，数值越小越严重。 */

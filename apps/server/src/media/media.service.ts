@@ -8,7 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { OBJECT_STORAGE, type ObjectStorage } from '../storage/storage.types';
 import { extractFrame, planFrameTimes, probeDurationSec } from './ffmpeg';
 
-export const VIDEO_FRAMES_JOB = 'video.frames';
+const VIDEO_FRAMES_JOB = 'video.frames';
 const MAX_VIDEO_BYTES = 300 * 1024 * 1024;
 
 /** 录屏抽关键帧（方案 7.3），结果存 derived/ 目录，供 MCP get_video_frames 返回。 */

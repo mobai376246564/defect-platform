@@ -13,7 +13,7 @@ export type JobHandler = (payload: Record<string, unknown>, job: Job) => Promise
 
 /**
  * 任务通道：每条通道一个串行的消费者。耗时长的录屏抽帧单独一条，
- * 不会堵住 APP 反馈建单、每日快照等其他任务。any 不区分类型（测试与运维脚本的 drain 用）。
+ * 不会堵住每日快照、每日清理等其他任务。any 不区分类型（测试与运维脚本的 drain 用）。
  */
 export type JobLane = 'media' | 'default' | 'any';
 const MEDIA_TYPE = 'video.%';
@@ -33,7 +33,7 @@ const SHUTDOWN_WAIT_MS = 8_000;
  * 基于 PostgreSQL 的轻量任务队列：
  * - SELECT ... FOR UPDATE SKIP LOCKED 取任务，多实例并发安全；
  * - 失败指数退避重试，超过 maxAttempts 标记 failed 便于告警与人工重试；
- * - dedupeKey 保证同一业务键只入队一次（如同一个 reportId）。
+ * - dedupeKey 保证同一业务键只入队一次（如同一个附件的抽帧、同一天的快照）。
  * MVP 不额外引入 Redis / 消息队列，规模上来后可替换为 TDMQ。
  */
 @Injectable()
@@ -164,6 +164,16 @@ export class JobsService implements OnApplicationBootstrap, OnModuleDestroy {
     const handler = this.handlers.get(job.type);
     if (!handler) {
       await this.fail(job, `没有注册任务类型 ${job.type} 的处理器`, true);
+      return;
+    }
+    // 执行中进程退出（如内存不足被杀）的任务会被重新领取，每次领取都计入次数；超过上限不再执行，
+    // 否则一个能把进程打挂的任务会每 10 分钟重来一次
+    if (job.attempts > job.maxAttempts) {
+      await this.fail(
+        job,
+        `已领取 ${job.attempts - 1} 次仍未完成（执行中进程可能退出了），不再重试`,
+        true,
+      );
       return;
     }
     // 长任务（如抽帧）执行期间定期续租，避免超过 10 分钟后被当成“执行者已退出”而重复领取

@@ -1,5 +1,12 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { FREQUENCY, PRIORITY, SEVERITY, findState, type WorkflowDefinition } from '@defect/shared';
+import {
+  FREQUENCY,
+  PRIORITY,
+  SEVERITY,
+  findState,
+  isParsableLog,
+  type WorkflowDefinition,
+} from '@defect/shared';
 import sharp from 'sharp';
 import type { Attachment, Defect } from '../generated/prisma/client';
 import { readLogArchive, type LogFile } from '../logs/log-archive';
@@ -7,6 +14,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { OBJECT_STORAGE, type ObjectStorage } from '../storage/storage.types';
 
 const MAX_LOG_BYTES = 50 * 1024 * 1024;
+/** 超过这个大小的图片不在 MCP 里压缩返回（避免一次读进几百 MB），改给下载链接；与缩略图上限一致 */
+export const MAX_INLINE_IMAGE_BYTES = 30 * 1024 * 1024;
 /** 日志缓存的内存预算（按字符数估算，含拆分后的行数组），超出时淘汰最久没用的 */
 const LOG_CACHE_BUDGET = 256 * 1024 * 1024;
 const costOf = (files: LogFile[]) => files.reduce((n, f) => n + f.text.length * 4, 0);
@@ -61,7 +70,7 @@ export class DefectMaterialsService {
       `- 严重程度：${label(SEVERITY, defect.severity)}；优先级：${label(PRIORITY, defect.priority)}；重现规律：${label(FREQUENCY, defect.frequency)}`,
       `- 模块：${module?.name ?? '—'}；处理人：${defect.ownerIds.map(name).join('、') || '—'}；创建人：${name(defect.reporterId)}`,
       `- 发现版本：${version?.name ?? '—'}；Git commit：${defect.appCommit ?? version?.commit ?? '未知'}`,
-      `- 来源：${defect.source}；重复反馈：${defect.dupCount} 次；创建于 ${defect.createdAt.toISOString()}`,
+      `- 来源：${defect.source}；创建于 ${defect.createdAt.toISOString()}`,
     ];
     if (defect.deviceInfo) lines.push(`- 环境：${JSON.stringify(defect.deviceInfo)}`);
     lines.push(
@@ -114,6 +123,13 @@ export class DefectMaterialsService {
   async logFiles(attachments: Attachment[]): Promise<LogFile[]> {
     const files: LogFile[] = [];
     for (const a of attachments.filter((x) => x.kind === 'log')) {
+      if (!isParsableLog(a.fileName)) {
+        files.push({
+          name: a.fileName,
+          text: `（${a.fileName} 是二进制日志格式，请用 download_attachments 下载后用对应工具解析）`,
+        });
+        continue;
+      }
       if (a.size > MAX_LOG_BYTES) {
         files.push({
           name: a.fileName,

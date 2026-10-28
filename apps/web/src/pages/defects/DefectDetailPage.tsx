@@ -304,11 +304,6 @@ function DefectView({
             {show('severity') && <SeverityTag value={defect.severity} />}
             {show('priority') && defect.priority && <PriorityTag value={defect.priority} />}
             {show('source') && <SourceTag value={defect.source} />}
-            {defect.dupCount > 0 && (
-              <Tag color="red" bordered={false}>
-                重复反馈 {defect.dupCount} 次
-              </Tag>
-            )}
             {defect.reopenCount > 0 && (
               <Tag color="orange" bordered={false}>
                 重新打开 {defect.reopenCount} 次

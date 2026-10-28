@@ -1,9 +1,9 @@
 import { DeleteOutlined, InboxOutlined, UploadOutlined } from '@ant-design/icons';
-import { attachmentKindOf } from '@defect/shared';
+import { ATTACHMENT_EXTENSIONS, attachmentKindOf } from '@defect/shared';
 import { Button, InputNumber, List, Space, Tag, Typography, Upload } from 'antd';
 import type { PendingFile } from '../api/upload';
 
-const ACCEPT = '.png,.jpg,.jpeg,.webp,.gif,.mp4,.mov,.webm,.log,.txt,.zip,.gz,.json';
+const ACCEPT = ATTACHMENT_EXTENSIONS.map((e) => `.${e}`).join(',');
 const MAX_BYTES = 200 * 1024 * 1024;
 
 /**

@@ -20,14 +20,14 @@ import { gitlabProvider } from './gitlab.provider';
 export const GIT_PROVIDERS: GitProvider[] = [githubProvider, gitlabProvider];
 
 /** 经典工作流里 MR 合并时执行的流转（待代码审核 → 已解决） */
-export const MERGE_TRANSITION = 'merged';
+const MERGE_TRANSITION = 'merged';
 
 /**
  * MR 合并时缺陷要执行的流转；返回 null 表示只关联、不流转。
  * 自由流转：处于“未开始 / 进行中”类别的缺陷转到合并目标状态（默认第一个“待验证”状态，如“待回归”）；
  * 经典工作流：只有存在从当前状态出发的“已合并”流转（即待代码审核）时才流转。
  */
-export function mergeTransition(workflow: WorkflowDefinition, status: string): string | null {
+function mergeTransition(workflow: WorkflowDefinition, status: string): string | null {
   if (workflow.mode === 'free') {
     const current = findState(workflow, status);
     const target = mergeTargetState(workflow);
@@ -45,6 +45,8 @@ export interface WebhookResult {
   ignored?: boolean;
   linked: { code: string; kind: LinkInput['kind']; target: string }[];
   transitioned: string[];
+  /** 流转失败的缺陷（缺必填字段、被他人同时修改等），不影响其他缺陷 */
+  failed: { code: string; error: string }[];
 }
 
 /**
@@ -81,6 +83,7 @@ export class GitWebhooksService {
       event: provider.eventName(headers),
       linked: [],
       transitioned: [],
+      failed: [],
     };
     const event = provider.parse(headers, unwrapForm(body));
     if (!event) return { ...result, ignored: true };
@@ -125,20 +128,27 @@ export class GitWebhooksService {
       if (!transition) continue;
       // 填入当前迭代版本作为修复版本；已手动填过的不覆盖
       const setVersion = fixVersion && !defect.versionFixedId ? fixVersion : null;
-      await this.defects.transition(
-        ctx,
-        { kind: 'system' },
-        code,
-        {
-          transition,
-          values: setVersion ? { versionFixedId: setVersion.id } : {},
-          comment: setVersion
-            ? `MR 已合并：${event.url}，修复版本 ${setVersion.name}`
-            : `MR 已合并：${event.url}`,
-        },
-        'system',
-      );
-      result.transitioned.push(code);
+      // 一个缺陷流转失败只记下来，继续处理 MR 里的其他缺陷（否则 Git 平台会反复重投整条事件）
+      try {
+        await this.defects.transition(
+          ctx,
+          { kind: 'system' },
+          code,
+          {
+            transition,
+            values: setVersion ? { versionFixedId: setVersion.id } : {},
+            comment: setVersion
+              ? `MR 已合并：${event.url}，修复版本 ${setVersion.name}`
+              : `MR 已合并：${event.url}`,
+          },
+          'system',
+        );
+        result.transitioned.push(code);
+      } catch (err) {
+        const error = (err as Error).message;
+        this.logger.warn(`MR 合并后流转 ${code} 失败：${error}`);
+        result.failed.push({ code, error });
+      }
     }
   }
 

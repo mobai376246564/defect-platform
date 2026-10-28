@@ -85,7 +85,6 @@ export interface DefectRow {
   ownerIds: string[];
   reporterId: string | null;
   source: string;
-  dupCount: number;
   dueAt: string | null;
   createdAt: string;
   updatedAt: string;

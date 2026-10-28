@@ -15,7 +15,7 @@ export interface AuthUser {
 export type AuthedRequest = Request & { user?: AuthUser };
 
 export const IS_PUBLIC = 'isPublic';
-/** 标记无需登录的接口（登录、健康检查、COS 事件回调等自带校验的接口）。 */
+/** 标记无需登录的接口（登录、健康检查、APP 提单、Git Webhook、本地存储签名链接等）。 */
 export const Public = (): MethodDecorator & ClassDecorator => SetMetadata(IS_PUBLIC, true);
 
 export const CurrentUser = createParamDecorator((_: unknown, ctx: ExecutionContext): AuthUser => {

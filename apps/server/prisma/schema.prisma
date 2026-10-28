@@ -165,8 +165,6 @@ model Defect {
   appCommit      String?
   deviceInfo     Json?
   logSummary     String?
-  fingerprint    String?
-  dupCount       Int       @default(0)
   reopenCount    Int       @default(0)
   dueAt          DateTime?
   customFields   Json      @default("{}")
@@ -187,7 +185,6 @@ model Defect {
   @@unique([projectId, seq])
   @@unique([projectId, code])
   @@index([projectId, statusCategory])
-  @@index([projectId, fingerprint])
   @@index([ownerIds], type: Gin)
   // 列表默认按创建时间、常按更新时间 / 状态 / 严重程度排序
   @@index([projectId, createdAt(sort: Desc)])
@@ -222,6 +219,8 @@ model Attachment {
   frames VideoFrame[]
 
   @@index([defectId])
+  // 清理任务按存储路径批量判断上传文件是否已挂到缺陷上
+  @@index([storageKey])
 }
 
 /// 视频关键帧（方案 7.3）：Claude 不能直接看视频，后台抽帧后按图片提供
@@ -265,6 +264,8 @@ model DefectHistory {
   defect Defect @relation(fields: [defectId], references: [id], onDelete: Cascade)
 
   @@index([defectId, createdAt])
+  // 复盘报表按时间段查状态变更（被重新打开）
+  @@index([field, createdAt])
 }
 
 model DefectLink {
@@ -281,24 +282,26 @@ model DefectLink {
   @@unique([defectId, kind, target])
 }
 
-/// APP 反馈原始记录，reportId 为幂等键（方案 5.2）
+/// APP 提单记录（POST /app/defects），reportId 为幂等键：APP 重试时用同一个值，只建一单
 model FeedbackReport {
   reportId    String    @id @db.Uuid
   appId       String
+  /// 附件在对象存储里的目录；没建成单的提交文件被清理后置为空串
   storagePrefix String
-  manifest    Json?
-  /// pending / created / merged / failed / archived
+  /// APP 提交的字段与文件清单（不含文件内容）
+  meta        Json?
+  /// pending 处理中 / created 已建单 / failed 失败
   status      String    @default("pending")
   error       String?
   defectId    String?   @db.Uuid
   receivedAt  DateTime  @default(now())
   processedAt DateTime?
 
-  @@index([status])
+  @@index([status, receivedAt])
   @@index([appId, receivedAt])
 }
 
-/// 通用后台任务队列（建单、对账、抽帧），用 SELECT ... FOR UPDATE SKIP LOCKED 取任务
+/// 通用后台任务队列（录屏抽帧、每日快照、每日清理），用 SELECT ... FOR UPDATE SKIP LOCKED 取任务
 model Job {
   id        String    @id @default(uuid()) @db.Uuid
   type      String

@@ -1,0 +1,95 @@
+# 推送到 main 后，在腾讯云 CVM 上自动构建并更新平台（运维一次性配置见 docs/deploy-tencent-cloud.md「自动部署」）。
+# 只在设置了仓库变量 DEPLOY_ENABLED=true 的仓库运行（部署仓库），其他仓库推送时跳过。
+# 执行器是装在 CVM 上的自托管 runner（标签 defect-deploy），主动连 GitHub 领任务，CVM 不需要对外开放端口。
+name: 部署
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 要部署的提交（留空为 main 最新提交；填旧提交号即回滚到那个版本）
+        required: false
+        default: ''
+
+# 同一时间只跑一个部署，后来的排队等前一个结束
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: vars.DEPLOY_ENABLED == 'true'
+    runs-on: [self-hosted, defect-deploy]
+    timeout-minutes: 60
+    env:
+      # 生产配置放在 CVM 上，不进仓库
+      ENV_FILE: ${{ vars.DEPLOY_ENV_FILE || '/opt/defect-platform/.env.production' }}
+      COMPOSE: docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.production
+      # 本机保留最近几个版本的镜像，用于回滚
+      KEEP_VERSIONS: 3
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: 准备配置
+        run: |
+          test -f "$ENV_FILE" || { echo "::error::找不到生产配置 $ENV_FILE"; exit 1; }
+          cp "$ENV_FILE" deploy/.env.production
+          echo "IMAGE_TAG=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_ENV"
+          echo "STATE_DIR=$(dirname "$ENV_FILE")" >> "$GITHUB_ENV"
+          port=$(grep -E '^WEB_PORT=' deploy/.env.production | cut -d= -f2 | tr -d '\r')
+          echo "WEB_PORT=${port:-80}" >> "$GITHUB_ENV"
+          registry=$(grep -E '^IMAGE_REGISTRY=' deploy/.env.production | cut -d= -f2 | tr -d '\r')
+          echo "IMAGE_REGISTRY=${registry:-defect}" >> "$GITHUB_ENV"
+
+      - name: 构建镜像
+        run: $COMPOSE build
+
+      - name: 数据库迁移并启动新版本
+        run: $COMPOSE up -d --remove-orphans
+
+      - name: 健康检查
+        run: |
+          for i in $(seq 1 36); do
+            if curl -fsS "http://127.0.0.1:$WEB_PORT/api/v1/health"; then echo; exit 0; fi
+            sleep 5
+          done
+          echo "::error::新版本 3 分钟内没有通过健康检查"
+          $COMPOSE ps
+          $COMPOSE logs --tail 200 migrate server
+          exit 1
+
+      - name: 记录版本并清理旧镜像
+        run: |
+          echo "$IMAGE_TAG" > "$STATE_DIR/current-version"
+          # 按部署历史（最新在前、去重）只保留最近几个成功版本的镜像标签；
+          # 不按 docker 的列表顺序删：代码没变的提交会构建出同一个镜像，顺序不可靠
+          { echo "$IMAGE_TAG"; cat "$STATE_DIR/versions" 2>/dev/null; } | awk '!seen[$0]++' > "$STATE_DIR/versions.new"
+          head -n "$KEEP_VERSIONS" "$STATE_DIR/versions.new" > "$STATE_DIR/versions"
+          tail -n +"$((KEEP_VERSIONS + 1))" "$STATE_DIR/versions.new" | while read -r old; do
+            for repo in defect-server defect-migrator defect-web; do
+              docker image rm "$IMAGE_REGISTRY/$repo:$old" > /dev/null 2>&1 || true
+            done
+          done
+          rm -f "$STATE_DIR/versions.new"
+          docker image prune -f
+
+      - name: 失败时回滚到上一个版本
+        if: failure()
+        run: |
+          prev=$(cat "$STATE_DIR/current-version" 2>/dev/null || true)
+          if [ -z "$prev" ] || [ "$prev" = "$IMAGE_TAG" ]; then
+            echo "::warning::没有可回滚的上一个版本，请查看上面的日志排查"
+            exit 0
+          fi
+          echo "回滚到 $prev"
+          # 只换回 server / web；数据库迁移都向后兼容，不回退
+          IMAGE_TAG=$prev $COMPOSE up -d --no-build --no-deps server web
+          # 失败版本的镜像标签不再需要（和其他版本是同一个镜像时只去掉标签）
+          for repo in defect-server defect-migrator defect-web; do
+            docker image rm "$IMAGE_REGISTRY/$repo:$IMAGE_TAG" > /dev/null 2>&1 || true
+          done

@@ -147,7 +147,6 @@ describe('reports (e2e)', () => {
     await move(codes.d3, {
       createdAt: new Date('2026-10-12T01:00:00Z'),
       source: 'app',
-      dupCount: 4,
     });
     await prisma.version.update({
       where: { id: versionId },
@@ -174,11 +173,11 @@ describe('reports (e2e)', () => {
       },
     });
 
-    // APP 提单：窗口内 4 条（3 条建单成功，其中 1 条是历史上的“合并”），窗口外 1 条
+    // APP 提单：窗口内 4 条（3 条建单成功、1 条失败），窗口外 1 条
     const appId = `com.reports.${key.toLowerCase()}`;
     const feedback = [
       ['created', '2026-10-13T02:00:00Z'],
-      ['merged', '2026-10-13T03:00:00Z'],
+      ['created', '2026-10-13T03:00:00Z'],
       ['created', '2026-10-14T02:00:00Z'],
       ['failed', '2026-10-18T15:00:00Z'],
       ['created', '2026-10-18T16:30:00Z'], // 北京时间 10-19，窗口外

@@ -128,10 +128,7 @@ export class LocalStorage implements ObjectStorage {
     for (const key of keys) await rm(this.fullPath(key), { force: true });
   }
 
-  async listKeys(
-    prefix: string,
-    opts: { suffix?: string; limit?: number; olderThan?: Date } = {},
-  ): Promise<string[]> {
+  async listKeys(prefix: string, opts: { olderThan?: Date } = {}): Promise<string[]> {
     const safe = assertSafeKey(prefix);
     const out: string[] = [];
     const walk = async (dir: string): Promise<void> => {
@@ -146,11 +143,12 @@ export class LocalStorage implements ObjectStorage {
         if (e.isDirectory()) await walk(full);
         else {
           const key = path.relative(this.root, full).split(path.sep).join('/');
-          const match = key.startsWith(safe) && (!opts.suffix || key.endsWith(opts.suffix));
-          if (match && (!opts.olderThan || (await stat(full)).mtime < opts.olderThan))
+          if (
+            key.startsWith(safe) &&
+            (!opts.olderThan || (await stat(full)).mtime < opts.olderThan)
+          )
             out.push(key);
         }
-        if (opts.limit && out.length >= opts.limit) return;
       }
     };
     // 从前缀所在的最深目录开始遍历

@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -19,14 +20,18 @@ import type { AuthUser } from '../common/auth-user';
 import { APP_ENV, type AppEnv } from '../config/env';
 import type { Prisma, ProjectRole } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { OBJECT_STORAGE, type ObjectStorage } from '../storage/storage.types';
 import { ProjectAccessService } from './project-access.service';
 
 @Injectable()
 export class ProjectsService {
+  private readonly logger = new Logger(ProjectsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: ProjectAccessService,
     @Inject(APP_ENV) private readonly env: AppEnv,
+    @Inject(OBJECT_STORAGE) private readonly storage: ObjectStorage,
   ) {}
 
   async listForUser(user: AuthUser) {
@@ -77,8 +82,9 @@ export class ProjectsService {
   }
 
   /**
-   * 删除项目（仅系统管理员）：连同缺陷、附件记录、评论、历史、成员、模块、版本、视图一起删除，
-   * 需要传入项目标识二次确认。对象存储里的附件文件不立即删除，由存储桶生命周期规则清理。
+   * 删除项目（仅系统管理员，需传入项目标识二次确认）：连同缺陷、附件、评论、历史、成员、模块、版本、视图，
+   * 以及通知、每日快照、MCP 调用记录、APP 提单记录一起删除；数据提交后再删对象存储里的附件、
+   * 缩略图、关键帧与没建成单的提交文件。删文件失败只记日志（数据已删，残留文件不影响使用）。
    */
   async remove(projectKey: string, user: AuthUser, confirmKey: string | undefined): Promise<void> {
     if (!user.isSystemAdmin) throw new ForbiddenException('只有系统管理员可以删除项目');
@@ -87,12 +93,43 @@ export class ProjectsService {
     if (confirmKey !== project.key) {
       throw new BadRequestException('请输入项目标识确认删除');
     }
-    await this.prisma.$transaction([
-      // 这两张表没有外键约束，需要手动清理
-      this.prisma.notification.deleteMany({ where: { projectId: project.id } }),
-      this.prisma.defectDailySnapshot.deleteMany({ where: { projectId: project.id } }),
-      this.prisma.project.delete({ where: { id: project.id } }),
+    const inProject = { defect: { projectId: project.id } };
+    const [attachments, frames, unlinkedReports] = await Promise.all([
+      this.prisma.attachment.findMany({ where: inProject, select: { id: true, storageKey: true } }),
+      this.prisma.videoFrame.findMany({
+        where: { attachment: inProject },
+        select: { storageKey: true },
+      }),
+      this.prisma.feedbackReport.findMany({
+        where: { appId: { in: project.appIds }, defectId: null },
+        select: { storagePrefix: true },
+      }),
     ]);
+    await this.prisma.$transaction(async (tx) => {
+      const defectIds = (
+        await tx.defect.findMany({ where: { projectId: project.id }, select: { id: true } })
+      ).map((d) => d.id);
+      // 这几张表没有外键约束，需要手动清理
+      await tx.notification.deleteMany({ where: { projectId: project.id } });
+      await tx.defectDailySnapshot.deleteMany({ where: { projectId: project.id } });
+      await tx.mcpAudit.deleteMany({ where: { projectId: project.id } });
+      // 本项目绑定的 APP 的提交记录，以及建到本项目缺陷上的（APP 标识后来改绑过的）
+      await tx.feedbackReport.deleteMany({
+        where: { OR: [{ appId: { in: project.appIds } }, { defectId: { in: defectIds } }] },
+      });
+      await tx.project.delete({ where: { id: project.id } });
+    });
+
+    const keys = [
+      ...attachments.flatMap((a) => [a.storageKey, `derived/thumbs/${a.id}.webp`]),
+      ...frames.map((f) => f.storageKey),
+    ];
+    try {
+      for (const r of unlinkedReports) keys.push(...(await this.storage.listKeys(r.storagePrefix)));
+      await this.storage.deleteObjects(keys);
+    } catch (err) {
+      this.logger.warn(`项目 ${project.key} 已删除，清理存储文件失败：${(err as Error).message}`);
+    }
   }
 
   async create(

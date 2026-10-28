@@ -1,7 +1,4 @@
-import { mkdirSync } from 'node:fs';
 import { unlink } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
 import {
   BadRequestException,
   Body,
@@ -12,12 +9,11 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
-import type { MulterOptions } from '@nestjs/platform-express/multer/interfaces/multer-options.interface';
+import { Throttle } from '@nestjs/throttler';
 import { FREQUENCY, type Frequency } from '@defect/shared';
 import { z } from 'zod';
 import { Public } from '../common/auth-user';
 import {
-  APP_FILE_MAX_BYTES,
   APP_MAX_FILES,
   IngestService,
   SEVERITY_KEYS,
@@ -91,27 +87,20 @@ const appDefectSchema = z.object({
   ),
 });
 
-const UPLOAD_DIR = path.join(tmpdir(), 'defect-app-uploads');
-mkdirSync(UPLOAD_DIR, { recursive: true });
-
-const uploadOptions = {
-  dest: UPLOAD_DIR,
-  limits: { fileSize: APP_FILE_MAX_BYTES, files: APP_MAX_FILES, fieldSize: 1024 * 1024 },
-  // 文件名按 UTF-8 解析，中文文件名不乱码
-  defParamCharset: 'utf8',
-} as MulterOptions;
-
 interface MulterFile {
   originalname: string;
   path: string;
   size: number;
-  mimetype?: string;
 }
+
+/** 每个 IP 每分钟最多提交的次数（测试环境不限流）；办公室多台手机共用出口 IP 也够用 */
+const SUBMIT_LIMIT_PER_MINUTE = 30;
 
 /**
  * APP 提单接口（docs/app-integration.md）：
  * POST /api/v1/app/defects，multipart/form-data，一次带上缺陷内容与截图 / 录屏 / 日志（字段名 files）。
  * 不需要登录：按 APP 标识（appId）找到绑定的项目，由 APP 端控制只有白名单用户能看到提单入口。
+ * 上传限制（文件类型、大小、个数、未绑定的 APP 提前拒绝）见 IngestModule。
  */
 @Public()
 @Controller('app')
@@ -120,13 +109,13 @@ export class IngestController {
 
   @Post('defects')
   @HttpCode(201)
-  @UseInterceptors(FilesInterceptor('files', APP_MAX_FILES, uploadOptions))
+  @Throttle({ default: { limit: SUBMIT_LIMIT_PER_MINUTE, ttl: 60_000 } })
+  @UseInterceptors(FilesInterceptor('files', APP_MAX_FILES))
   async create(@Body() body: unknown, @UploadedFiles() uploaded: MulterFile[] | undefined) {
     const files: UploadedFile[] = (uploaded ?? []).map((f) => ({
       originalName: f.originalname,
       path: f.path,
       size: f.size,
-      mimeType: f.mimetype,
     }));
     try {
       const parsed = appDefectSchema.safeParse(body ?? {});

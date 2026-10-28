@@ -143,7 +143,7 @@ function opLabel(field: FilterField, op: FilterOp): string {
 }
 
 /** 未填完的条件不提交 */
-export function isComplete(c: FilterCondition): boolean {
+function isComplete(c: FilterCondition): boolean {
   if (VALUELESS_OPS.includes(c.op)) return true;
   const v = c.value;
   if (Array.isArray(v)) return c.op === 'between' ? v.some(Boolean) : v.length > 0;

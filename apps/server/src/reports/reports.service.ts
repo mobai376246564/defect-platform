@@ -436,7 +436,7 @@ export class ReportsService {
 
   /**
    * APP 提单：项目绑定的各 APP 提交量、建单成功与失败、各 APP 的分布，以及最近的失败原因。
-   * 历史数据里“合并到已有缺陷”（merged）也算成功；pending 是正在处理的提交。
+   * pending 是正在处理的提交（超过 1 小时没结束的由每日清理记为失败）。
    */
   async feedback(ctx: ProjectContext, f: ReportFilter) {
     const s = await this.scope(ctx, f);
@@ -451,11 +451,7 @@ export class ReportsService {
     type Tally = { total: number; created: number; failed: number; pending: number };
     const empty = (): Tally => ({ total: 0, created: 0, failed: 0, pending: 0 });
     const outcome = (status: string): keyof Omit<Tally, 'total'> =>
-      status === 'created' || status === 'merged'
-        ? 'created'
-        : status === 'failed'
-          ? 'failed'
-          : 'pending';
+      status === 'created' ? 'created' : status === 'failed' ? 'failed' : 'pending';
     const points = new Map<string, Tally>();
     for (const day of dateRange(s.from, s.to)) points.set(bucketOf(day, s.granularity), empty());
     const byApp = new Map<string, Tally>(appIds.map((a) => [a, empty()]));

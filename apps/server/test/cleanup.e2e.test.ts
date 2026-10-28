@@ -1,6 +1,8 @@
-import { existsSync, utimesSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, utimesSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { APP_UPLOAD_DIR } from '../src/ingest/upload-dir';
 import { CleanupService } from '../src/maintenance/cleanup.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { auth, createTestApp, createUser, projectKey, type TestContext } from './helpers';
@@ -136,5 +138,54 @@ describe('daily cleanup (e2e)', () => {
     // 未读的通知不清理
     expect(await prisma.notification.findUnique({ where: { id: unreadOld.id } })).not.toBeNull();
     await prisma.job.delete({ where: { id: queued.id } });
+  });
+
+  it('cleans up after failed or interrupted APP submissions', async () => {
+    const write = (rel: string) => {
+      const file = path.join(ctx.storageDir, rel);
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, 'x');
+      age(file, 2);
+      return file;
+    };
+    // 建单失败留下的文件（没挂到缺陷上）删除；已挂到缺陷上的 APP 附件保留
+    const failedFile = write(`feedback/com.cleanup/20260101/${randomUUID()}/crash.log`);
+    const keptKey = `feedback/com.cleanup/20260101/${randomUUID()}/shot.png`;
+    const keptFile = write(keptKey);
+    const { code } = await defectWithFile(true);
+    const defect = await prisma.defect.findFirstOrThrow({ where: { code } });
+    await prisma.attachment.create({
+      data: {
+        defectId: defect.id,
+        kind: 'image',
+        fileName: 'shot.png',
+        storageKey: keptKey,
+        size: 1,
+      },
+    });
+    // 停在“处理中”超过 1 小时的提交记为失败
+    const stale = await prisma.feedbackReport.create({
+      data: {
+        reportId: randomUUID(),
+        appId: 'com.cleanup',
+        storagePrefix: 'feedback/com.cleanup/x/',
+        receivedAt: new Date(Date.now() - 2 * 3_600_000),
+      },
+    });
+    // 服务端临时目录里的残留上传文件
+    const temp = path.join(APP_UPLOAD_DIR, `stale-${randomUUID()}`);
+    writeFileSync(temp, 'x');
+    age(temp, 2);
+
+    const result = await ctx.app.get(CleanupService).run();
+
+    expect(existsSync(failedFile)).toBe(false);
+    expect(existsSync(keptFile)).toBe(true);
+    expect(existsSync(temp)).toBe(false);
+    expect(
+      await prisma.feedbackReport.findUniqueOrThrow({ where: { reportId: stale.reportId } }),
+    ).toMatchObject({ status: 'failed' });
+    expect(result).toMatchObject({ staleSubmissions: 1 });
+    expect(result.tempFiles).toBeGreaterThanOrEqual(1);
   });
 });

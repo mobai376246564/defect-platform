@@ -33,10 +33,10 @@ export const DEFAULT_SORT: SortSpec[] = [{ field: 'createdAt', order: 'desc' }];
 export const SAVED_PREFIX = 'saved:';
 
 /** 快捷筛选字段，与视图条件合并后发给服务端（用户筛选覆盖视图里的同名条件）。 */
-export const FILTER_KEYS = ['keyword', 'severity', 'priority', 'status', 'moduleId'] as const;
+const FILTER_KEYS = ['keyword', 'severity', 'priority', 'status', 'moduleId'] as const;
 
 /** 保存到自定义视图里的地址参数（不含视图本身与分页） */
-export const SAVED_PARAM_KEYS = [...FILTER_KEYS, 'filters', 'sort', 'groupBy'] as const;
+const SAVED_PARAM_KEYS = [...FILTER_KEYS, 'filters', 'sort', 'groupBy'] as const;
 
 export function readFilters(params: URLSearchParams): FilterGroup | undefined {
   const raw = params.get('filters');

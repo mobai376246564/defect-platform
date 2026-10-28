@@ -39,7 +39,8 @@ Content-Type: multipart/form-data
 | `extra`        | 否   | 其他上下文，**JSON 对象字符串**，如 `{"network":"WIFI","uid":"..."}`，原样保存                     |
 | `files`        | 否   | 附件，可以重复多次（每个文件一个 `files` 字段）                                                    |
 
-空字符串按「没填」处理。
+- 空字符串按「没填」处理。
+- **文本字段放在文件前面**（示例都是这样写的）：平台边收边检查，`appId` 没绑定或文件类型不支持时，在上传大文件之前就能拒绝。
 
 ### 处理人
 
@@ -52,11 +53,11 @@ Content-Type: multipart/form-data
 ### 附件
 
 - 一次最多 10 个文件，单个不超过 200 MB，合计不超过 500 MB。
-- 按扩展名识别类型：
+- 只接受下面这些类型（按扩展名判断），其他类型（如 `html`、`svg`、`exe`）会被拒绝：
   - 截图：`png` `jpg` `jpeg` `webp` `gif`
   - 录屏：`mp4` `mov` `webm` `m4v`，平台会自动抽关键帧
-  - 日志：`log` `txt` `zip`，平台会自动解析出异常摘要；`zip` 里可以放多个日志文件
-  - 其他文件原样保存，比如原始录音 `m4a`，便于回听核对
+  - 日志：`log` `txt` `json` `zip`，平台会自动解析出异常摘要，`zip` 里可以放多个日志文件；`xlog` `gz` 原样保存，不解析
+  - 录音：`m4a` `mp3` `wav` `aac` `amr`，原样保存，便于回听核对
 - 文件名支持中文，同名文件会自动加序号。
 
 ### 返回
@@ -78,12 +79,13 @@ Content-Type: multipart/form-data
 
 失败时返回 JSON `{ "statusCode": 400, "message": "原因" }`：
 
-| 状态码     | 原因                                                                           | APP 怎么处理                      |
-| ---------- | ------------------------------------------------------------------------------ | --------------------------------- |
-| 400        | 缺少 `appId` / `description`，字段取值不对，`appId` 没绑定项目，文件超过 10 个 | 把 `message` 提示给用户，不要重试 |
-| 413        | 单个文件超过 200 MB，或整个请求超过 512 MB                                     | 提示压缩录屏后再提交              |
-| 429        | 同一个 IP 请求太频繁                                                           | 稍后重试                          |
-| 5xx / 超时 | 平台或网络异常                                                                 | 用**同一个 `reportId`** 重试      |
+| 状态码     | 原因                                                                                           | APP 怎么处理                                     |
+| ---------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| 400        | 缺少 `appId` / `description`，字段取值不对，`appId` 没绑定项目，文件类型不支持，文件超过 10 个 | 把 `message` 提示给用户，不要重试                |
+| 409        | 同一个 `reportId` 的上一次提交还在处理中（比如超时后马上重试）                                 | 等几秒后用**同一个 `reportId`** 重试，会拿到编号 |
+| 413        | 单个文件超过 200 MB，或整个请求超过 512 MB                                                     | 提示压缩录屏后再提交                             |
+| 429        | 同一个 IP 每分钟提交超过 30 次                                                                 | 稍后重试                                         |
+| 5xx / 超时 | 平台或网络异常                                                                                 | 用**同一个 `reportId`** 重试                     |
 
 ## 3. 示例
 
@@ -178,5 +180,11 @@ yield return req.SendWebRequest();
 
 ## 5. 联调
 
-- 平台仓库里有模拟脚本，不用 APP 也能验证接口：在 `apps/server` 目录执行 `npx tsx scripts/simulate-app-defect.ts --app <APP 标识> --base <平台地址>`。
+- 平台地址做成 APP 的配置项，联调和正式环境切换时只改配置。
+- **内网联调用的是 http 地址**（如 `http://10.10.0.168:5180`），手机系统默认拦截 http，调试包要放开（正式包不要带）：
+  - 安卓：`network_security_config` 里给联调地址加 `cleartextTrafficPermitted="true"`；
+  - iOS：`Info.plist` 的 `NSAppTransportSecurity → NSExceptionDomains` 给联调地址加 `NSExceptionAllowsInsecureHTTPLoads`；
+  - Unity：安卓在 Player Settings 里把「Allow downloads over HTTP」设为允许，iOS 同上加 ATS 例外。
+- 平台仓库里有模拟脚本，不用 APP 也能验证接口，覆盖全部字段并可逐项核对：在 `apps/server` 目录执行
+  `npx tsx scripts/simulate-app-defect.ts --app <APP 标识> --base <平台地址> [--token <个人 API Token>]`（`--list` 查看场景）。
 - 提交记录、成功和失败数以及失败原因，在平台「统计报表 → APP 提单」里查看。

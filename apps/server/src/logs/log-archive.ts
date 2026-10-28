@@ -13,7 +13,7 @@ const MAX_TOTAL_BYTES = 200 * 1024 * 1024;
 const MAX_ENTRIES = 2000;
 const TEXT_EXT = /\.(log|txt|json|out|err|trace)$/i;
 /** 压缩包里有内容因超限没有展开时，追加一个说明文件，检索时能看到原因 */
-export const SKIPPED_NOTE_NAME = '（未展开的内容）';
+const SKIPPED_NOTE_NAME = '（未展开的内容）';
 
 /** 日志按行拆分，结果缓存在对象上，grep / read 反复调用时不再重复拆分整份文本 */
 export function linesOf(f: LogFile): string[] {

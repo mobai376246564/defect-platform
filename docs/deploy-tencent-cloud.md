@@ -76,6 +76,7 @@ APP 通过 `POST /api/v1/app/defects` 把描述和附件一次性提交给平台
          "effect": "allow",
          "action": ["name/cos:DeleteObject", "name/cos:DeleteMultipleObject"],
          "resource": [
+           "qcs::cos:ap-guangzhou:uid/1250000000:feedback-1250000000/feedback/*",
            "qcs::cos:ap-guangzhou:uid/1250000000:feedback-1250000000/web/*",
            "qcs::cos:ap-guangzhou:uid/1250000000:feedback-1250000000/derived/*"
          ]
@@ -87,7 +88,7 @@ APP 通过 `POST /api/v1/app/defects` 把描述和附件一次性提交给平台
 
    - `feedback/*`：平台收到 APP 提单后把附件写进去。
    - `web/*`：网页提单时签发临时凭证，由浏览器直传。
-   - 删除权限只给 `web/`、`derived/`：每天清理没有挂到缺陷上的残留上传。缺陷附件不会被删除。
+   - 删除权限：每天凌晨清理超过 24 小时仍没挂到缺陷上的文件（网页上传到一半放弃、APP 提单失败留下的），删除项目时删除它的附件。已挂到缺陷上的附件永久保留，不会被清理。
 
 5. 子账号密钥放入 SSM 凭据管理，不要通过聊天工具或邮件传递。
 
@@ -131,14 +132,16 @@ docker build -f deploy/server.Dockerfile --target migrator -t defect-migrator:<�
 docker build -f deploy/web.Dockerfile -t defect-web:<版本> .
 ```
 
-- 国内网络构建加上镜像源参数：`--build-arg NPM_REGISTRY=https://mirrors.cloud.tencent.com/npm/ --build-arg DEBIAN_MIRROR=http://mirrors.tencentyun.com --build-arg FFMPEG_BINARIES_URL=https://registry.npmmirror.com/-/binary/ffmpeg-static`（用 compose 构建时这几个值从 `.env.production` 读取）。`mirrors.tencentyun.com` 是 CVM 内网源，在腾讯云外构建（如 CI、本机）改用 `http://mirrors.aliyun.com`；Debian 源必须用 http 且不能跳转到 https。
+- 国内网络构建加上镜像源参数：`--build-arg NPM_REGISTRY=http://mirrors.tencentyun.com/npm/ --build-arg DEBIAN_MIRROR=http://mirrors.tencentyun.com --build-arg FFMPEG_BINARIES_URL=https://registry.npmmirror.com/-/binary/ffmpeg-static`（用 compose 构建时这几个值从 `.env.production` 读取，模板里已填好）。`mirrors.tencentyun.com` 是 CVM 内网源，不走公网也不收流量费；在腾讯云外构建（如本机）时 npm 改用 `https://registry.npmmirror.com`、Debian 改用 `http://mirrors.aliyun.com`。Debian 源必须用 http 且不能跳转到 https。npm 下载失败会自动重试。
 - 在 Mac（Apple 芯片）上构建给 x86 的 CVM 用，要加 `--platform linux/amd64`。
 - 服务端容器以非 root 用户运行，自带健康检查（`/api/v1/health`）；`migrate` 每次启动都执行 `prisma migrate deploy` 与初始化管理员，执行完退出。
 - 数据库迁移会执行 `CREATE EXTENSION IF NOT EXISTS pg_trgm`（模糊搜索的索引）。TencentDB 上如果 `defect` 账号没有权限，先在控制台「插件管理」里给 `defect` 库安装 `pg_trgm`。
 
 ## 5. 配置与启动
 
-**方式一：在 CVM 上直接构建（最简单）**
+日常更新推荐用第 6 节的自动部署（推送代码即更新）。下面是手动部署的做法，也用来理解配置项。
+
+**手动部署：在 CVM 上直接构建**
 
 ```bash
 git clone <仓库地址> defect-platform && cd defect-platform
@@ -148,7 +151,7 @@ docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.producti
 docker compose -f deploy/docker-compose.prod.yml logs -f server
 ```
 
-**方式二：CI 构建并推送到腾讯云容器镜像服务 TCR，CVM 只拉镜像（正式环境推荐）**
+**以后扩到多台服务器时：构建后推送到腾讯云容器镜像服务 TCR，服务器只拉镜像**
 
 ```bash
 # CI 或构建机上，在仓库根目录
@@ -168,11 +171,68 @@ docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.producti
 - `migrate` 服务先执行 `prisma migrate deploy` 与初始化管理员，成功后 `server` 才启动。
 - 生成密钥：`openssl rand -base64 48`（JWT_SECRET）。
 - `TRUST_PROXY_HOPS=2`：请求经过 CLB 和容器里的 Nginx 两层代理，服务端据此取真实客户端 IP 做登录限流；填错会把所有人当成同一个 IP 一起限流。
-- 附件推荐存 COS（`STORAGE_DRIVER=cos`）。没有 COS 时可用 `STORAGE_DRIVER=local`，附件存在数据卷 `server-data` 里，需要自己备份这个卷，并设置 `LOCAL_STORAGE_SECRET`。
+- 附件推荐存 COS（`STORAGE_DRIVER=cos`）。没有 COS 时可用 `STORAGE_DRIVER=local`，附件存在数据卷 `server-data` 里，需要自己备份这个卷；此时必须设置 `LOCAL_STORAGE_SECRET`（`openssl rand -hex 32`），用默认值服务会拒绝启动。
 - 健康检查：`curl http://localhost/api/v1/health` 返回 `{"status":"ok"}`。
-- 容器部署不使用管理后台的「系统更新」（那是单机 pm2 部署的在线更新），升级按第 9 节换镜像。
+- 容器部署不使用管理后台的「系统更新」（那是单机 pm2 部署的在线更新），日常更新用下一节的自动部署。
 
-## 6. CLB 与 HTTPS
+## 6. 自动部署（推送即更新，推荐）
+
+配置好以后，日常更新只需要**把代码推送到部署仓库的 `main` 分支**，云服务器自动完成更新：
+
+```
+推送到 main ──▶ GitHub 通知 CVM 上的执行器 ──▶ 拉取代码、构建镜像 ──▶ 数据库迁移 ──▶ 重启服务 ──▶ 健康检查
+                                                                                  └─ 失败：自动回滚到上一个版本
+```
+
+流程定义在仓库的 `.github/workflows/deploy.yml`，可以在仓库的 Actions 页面看到每次部署的进度和日志。
+
+### 6.1 运维一次性配置（约 30 分钟）
+
+1. **生产配置放到固定位置**（不进仓库，部署时复制进来）：
+
+   ```bash
+   sudo mkdir -p /opt/defect-platform && sudo chown $USER /opt/defect-platform
+   cp deploy/.env.production.example /opt/defect-platform/.env.production
+   vim /opt/defect-platform/.env.production      # 按第 5 节填写
+   chmod 600 /opt/defect-platform/.env.production
+   ```
+
+2. **在 CVM 上安装 GitHub Actions 执行器**（self-hosted runner）：
+   - 打开部署仓库 → Settings → Actions → Runners → New self-hosted runner，选 Linux、x64，页面会给出下载、注册命令和一次性 token。
+   - 用一个能运行 docker 的普通用户执行（已按第 3 节加入 docker 组），注册时加上标签 `defect-deploy`：
+
+     ```bash
+     mkdir ~/actions-runner && cd ~/actions-runner
+     # 先按页面上的命令下载并解压 runner，然后：
+     ./config.sh --url https://github.com/<组织>/<部署仓库> --token <页面上的 token> \
+       --labels defect-deploy --name defect-cvm --unattended
+     sudo ./svc.sh install && sudo ./svc.sh start   # 装成系统服务，开机自动运行
+     ```
+
+   - 执行器是主动连 GitHub 领任务，CVM **不需要对外开放端口**，但要能访问 github.com。国内访问慢时，可在 runner 目录的 `.env` 文件里写 `https_proxy=<代理地址>` 后重启服务。
+
+3. **在仓库打开自动部署**：部署仓库 → Settings → Secrets and variables → Actions → Variables，新增：
+
+   | 变量              | 值                                     | 说明                                                 |
+   | ----------------- | -------------------------------------- | ---------------------------------------------------- |
+   | `DEPLOY_ENABLED`  | `true`                                 | 只有设置了它的仓库才会部署；个人开发仓库推送不会触发 |
+   | `DEPLOY_ENV_FILE` | `/opt/defect-platform/.env.production` | 生产配置的位置；用上面的默认路径时可以不设           |
+
+4. **首次部署**：部署仓库 → Actions → 部署 → Run workflow。成功后访问平台确认，并按第 9 节检查。
+
+> 执行器会在 CVM 上运行仓库里的部署流程，所以部署仓库要保持**私有**，只给可信的人写权限。流程只在推送到 `main` 和手动触发时运行，不会运行外部 Pull Request 的代码。
+
+### 6.2 日常使用
+
+| 事情         | 怎么做                                                                                                   |
+| ------------ | -------------------------------------------------------------------------------------------------------- |
+| 发布新版本   | 把代码推送到部署仓库的 `main`，约 5–10 分钟自动更新完（首次构建更久）。进度在仓库 Actions 页面           |
+| 部署失败     | 新版本 3 分钟内没通过健康检查会自动回滚到上一个版本，平台继续可用；按 Actions 里的日志排查后重新推送     |
+| 手动回滚     | Actions → 部署 → Run workflow，「要部署的提交」填想回到的提交号（本机保留最近 3 个版本的镜像，回滚很快） |
+| 改配置       | 改 CVM 上的 `/opt/defect-platform/.env.production`，再在 Actions 里 Run workflow 重新部署一次            |
+| 连续推送多次 | 部署按顺序一个个执行，不会同时跑                                                                         |
+
+## 7. CLB 与 HTTPS
 
 1. 创建应用型 CLB，添加 HTTPS:443 监听器，绑定证书。
 2. 转发规则：域名 `defects.example.com`、路径 `/` → 后端 CVM 80 端口。
@@ -181,7 +241,7 @@ docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.producti
 5. **APP 提单带大附件**：一次请求最大约 500 MB（单个文件 200 MB）。请把 CLB 监听器的「请求体大小上限」调到 512 MB 以上，后端请求超时调到 600 秒，否则大录屏会被 CLB 拒绝或中途断开。
 6. 如需限制访问，可在 CLB 或 WAF 上配置公司出口 IP 白名单。注意开发者在家办公时的 MCP 访问，以及 APP 提单接口 `/api/v1/app/defects` 要允许 APP 所在网络访问。
 
-## 7. 在 GitHub/GitLab 配置 Webhook（方案 7.7）
+## 8. 在 GitHub/GitLab 配置 Webhook（方案 7.7）
 
 配置后，平台按分支名、提交信息、MR 标题里的缺陷编号自动关联 branch / commit / MR；MR 合并时，处于「待代码审核」的缺陷以系统身份流转为「已解决」并指派给验证人，评论中记录 MR 链接。其他状态的缺陷只关联、不流转。若在「项目设置 → 版本」里选了「当前迭代版本」，自动解决时会把它填为缺陷的修复版本（已手动填过的不覆盖）；发版后记得切换到下一个迭代版本。每个项目单独配置。
 
@@ -197,13 +257,13 @@ docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.producti
    - Secret token：上面的密钥（平台比对 `X-Gitlab-Token`）
    - 触发：勾选 **Push events**（可限定分支）与 **Merge request events**
    - 开启 SSL verification；保存后用「Test → Push events」验证返回 200
-4. **网络**：Git 平台必须能访问 Webhook 地址。若第 6 节配置了 IP 白名单，需放行 GitHub 的 Webhook 出口 IP（见 `https://api.github.com/meta` 的 `hooks` 字段）或自建 GitLab 的出口 IP；自建 GitLab 访问内网地址时，需要管理员在 Admin → Settings → Network → Outbound requests 中允许。
+4. **网络**：Git 平台必须能访问 Webhook 地址。若第 7 节配置了 IP 白名单，需放行 GitHub 的 Webhook 出口 IP（见 `https://api.github.com/meta` 的 `hooks` 字段）或自建 GitLab 的出口 IP；自建 GitLab 访问内网地址时，需要管理员在 Admin → Settings → Network → Outbound requests 中允许。
 5. **团队约定**：提交信息写 `fix(APP-12): 修复支付后订单未刷新`，或分支命名 `fix/APP-12-pay-refresh`（大小写均可），MR 标题带上编号。分支名含编号时，该分支上的所有提交都会关联到该缺陷。
 6. **排查**：签名或 Token 不对、项目未生成密钥时返回 401；无法识别来源返回 400；ping、tag 推送、删除分支等事件返回 200 并带 `ignored: true`。响应体中的 `linked`、`transitioned` 列出本次关联与流转的缺陷，可在 Git 平台的投递记录中查看。
 
 > 腾讯工蜂与 GitLab 的 Webhook 格式相近，后续接入只需在 `apps/server/src/git-webhooks/` 新增一个适配器（实现 `GitProvider`）并加入 `GIT_PROVIDERS`。
 
-## 8. 上线后检查
+## 9. 上线后检查
 
 - [ ] 用管理员账号登录，创建项目、在「项目设置 → APP 接入」绑定 APP 标识、添加成员与模块
 - [ ] 网页提单并上传截图、录屏、日志，详情页可预览，录屏关键帧已生成
@@ -212,13 +272,14 @@ docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env.producti
 - [ ] APP 测试包提单后自动建单，返回缺陷编号（没有 APP 时在 `apps/server` 目录执行 `npx tsx scripts/simulate-app-defect.ts --app <APP 标识> --base https://defects.example.com` 模拟）
 - [ ] 配置 Git Webhook 后，把一个缺陷推进到「待代码审核」，合并带编号的 MR，缺陷自动变为「已解决」
 
-## 9. 运维
+## 10. 运维
 
-| 事项     | 做法                                                                                                                                  |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| 日志     | `docker compose logs`；建议接入 CLS 日志服务                                                                                          |
-| 监控告警 | 云监控：CVM CPU/内存、数据库连接数；CLB 5xx；业务侧关注任务表 `Job` 中 `status='failed'` 的数量                                       |
-| 备份     | TencentDB 自动备份；COS 开启版本控制                                                                                                  |
-| 升级     | 方式一：`git pull` 后 `docker compose ... up -d --build`；方式二：改 `IMAGE_TAG` 后 `pull` 再 `up -d`。迁移会在 server 启动前自动执行 |
-| 扩容     | 多实例部署时只让一个实例 `RUN_WORKER=true`，或单独部署 worker；附件与任务都在共享存储，服务本身无状态                                 |
-| 回滚     | 镜像按版本打标签，`IMAGE_TAG` 改回上一版本后 `up -d`；数据库迁移只做向后兼容的变更                                                    |
+| 事项     | 做法                                                                                                                         |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 日志     | `docker compose logs`；建议接入 CLS 日志服务                                                                                 |
+| 监控告警 | 云监控：CVM CPU/内存、数据库连接数；CLB 5xx；业务侧关注任务表 `Job` 中 `status='failed'` 的数量                              |
+| 备份     | TencentDB 自动备份；COS 开启版本控制                                                                                         |
+| 升级     | 推送代码到部署仓库 `main`，自动部署（第 6 节）；数据库迁移在 server 启动前自动执行                                           |
+| 回滚     | 部署失败自动回滚；手动回滚在 Actions 里 Run workflow 填旧提交号（第 6.2 节）。数据库迁移只做向后兼容的变更，回滚不回退数据库 |
+| 清理     | 每天凌晨自动清理：没挂到缺陷上的残留上传、中断的 APP 提交、30 天前结束的后台任务、90 天前的已读通知。缺陷与附件永久保留      |
+| 扩容     | 多实例部署时只让一个实例 `RUN_WORKER=true`，或单独部署 worker；附件与任务都在共享存储，服务本身无状态                        |

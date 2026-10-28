@@ -9,7 +9,7 @@ import { DefectsService, userActor } from '../defects/defects.service';
 import { grepLogs, linesOf } from '../logs/log-archive';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProjectAccessService, type ProjectContext } from '../projects/project-access.service';
-import { DefectMaterialsService } from './defect-materials.service';
+import { DefectMaterialsService, MAX_INLINE_IMAGE_BYTES } from './defect-materials.service';
 
 const CODE = z
   .string()
@@ -182,6 +182,13 @@ export class McpServerFactory {
               },
             ];
             for (const a of page) {
+              if (a.size > MAX_INLINE_IMAGE_BYTES) {
+                content.push({
+                  type: 'text',
+                  text: `截图：${a.fileName}（${(a.size / 1024 / 1024).toFixed(0)} MB，太大不直接返回，下载链接：${await this.materials.presign(a)}）`,
+                });
+                continue;
+              }
               content.push({ type: 'text', text: `截图：${a.fileName}` });
               content.push({ type: 'image', ...(await this.materials.compressedImage(a)) });
             }
@@ -518,5 +525,3 @@ export class McpServerFactory {
     });
   }
 }
-
-export { FIX_INSTRUCTIONS };

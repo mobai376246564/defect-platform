@@ -5,7 +5,7 @@ import { JobsService } from '../jobs/jobs.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { addDays, dayStart } from './report-math';
 
-export const SNAPSHOT_JOB = 'report.daily-snapshot';
+const SNAPSHOT_JOB = 'report.daily-snapshot';
 
 /** 凌晨 00:05（北京时间）写前一天的快照，留几分钟给跨零点的请求落库 */
 const RUN_AFTER_MIDNIGHT_MS = 5 * 60_000;

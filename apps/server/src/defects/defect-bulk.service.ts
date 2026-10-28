@@ -126,7 +126,6 @@ export class DefectBulkService {
           ownerIds: true,
           reporterId: true,
           source: true,
-          dupCount: true,
           dueAt: true,
           createdAt: true,
           updatedAt: true,

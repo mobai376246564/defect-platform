@@ -29,6 +29,7 @@ cp apps/server/.env.example apps/server/.env
 修改 `apps/server/.env`（`<本机 IP>` 换成实际地址）：
 
 ```ini
+NODE_ENV=production
 PORT=3100
 PUBLIC_BASE_URL=http://<本机 IP>:5180
 WEB_ORIGIN=http://<本机 IP>:5180
@@ -61,13 +62,13 @@ pm2 save                                 # 开机自启需再执行一次 pm2 st
 
 ## 日常操作
 
-| 操作              | 命令                                                                                    |
-| ----------------- | --------------------------------------------------------------------------------------- |
-| 查看状态          | `pm2 ls`                                                                                |
-| 查看日志          | `pm2 logs defect-server`                                                                |
-| 更新代码          | 后台「系统更新」一键更新（见下节），或在仓库根目录执行 `bash deploy/pm2/self-update.sh` |
-| 停止              | `pm2 stop defect-web defect-server defect-db`                                           |
-| 模拟一条 APP 提单 | `cd apps/server && npx tsx scripts/simulate-app-defect.ts --app <APP 标识>`             |
+| 操作              | 命令                                                                        |
+| ----------------- | --------------------------------------------------------------------------- |
+| 查看状态          | `pm2 ls`                                                                    |
+| 查看日志          | `pm2 logs defect-server`                                                    |
+| 更新代码          | 后台「系统更新」一键更新（见下节）；命令行手动更新见下节末尾                |
+| 停止              | `pm2 stop defect-web defect-server defect-db`                               |
+| 模拟一条 APP 提单 | `cd apps/server && npx tsx scripts/simulate-app-defect.ts --app <APP 标识>` |
 
 ## 在线更新（系统更新）
 
@@ -111,9 +112,10 @@ pm2 save                                 # 开机自启需再执行一次 pm2 st
 - 更新日志在 `.data/update/update.log`，进度在 `.data/update/status.json`。
 - 每次更新都会按新版本的 `ecosystem.config.cjs` 重新启动服务端和网页，进程配置的改动自动生效；数据库进程不重启。
 - 端口不是默认值时，启动 pm2 和服务端的环境里要有 `WEB_PORT` / `API_PORT`，更新时会沿用。
+- 命令行手动更新：在仓库根目录执行 `set -a && . apps/server/.env && set +a && bash deploy/pm2/self-update.sh`。要先加载 `.env`，脚本备份数据库时需要 `DATABASE_URL`（后台一键更新时由服务端传入）。
 - 从旧版本（原地构建）升级到发布目录方式：先 `brew install nginx`，再在仓库根目录执行一次 `bash deploy/pm2/self-update.sh`。没有 `.releases/current` 时即使已是最新版本也会执行一遍，完成切换。
 
-每日维护：服务端每天凌晨 03:30（北京时间）自动清理超过 24 小时仍未登记成附件的上传文件（上传到一半放弃等）、30 天前已结束的后台任务和 90 天前的已读通知。缺陷（包括已删除的）及其附件永久保留。
+每日维护：服务端每天凌晨 03:30（北京时间）自动清理超过 24 小时仍没挂到缺陷上的上传文件（网页上传到一半放弃、APP 提单失败留下的）、停在“处理中”超过 1 小时的 APP 提交（记为失败）、服务端临时目录里的残留上传、30 天前已结束的后台任务和 90 天前的已读通知。缺陷（包括已删除的）及其附件永久保留；删除项目时连同它的附件文件一起删除。
 
 本地 Claude Code 接入：在后台「个人设置」创建 Token，然后执行
 `claude mcp add -s user --transport http defects http://<本机 IP>:5180/api/v1/mcp --header "Authorization: Bearer <Token>"`。

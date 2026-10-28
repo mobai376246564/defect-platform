@@ -8,7 +8,7 @@ import {
   Param,
   Post,
 } from '@nestjs/common';
-import { attachmentKindOf } from '@defect/shared';
+import { attachmentKindOf, isAllowedAttachment } from '@defect/shared';
 import { randomBytes } from 'node:crypto';
 import sharp from 'sharp';
 import { z } from 'zod';
@@ -20,22 +20,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ProjectAccessService } from '../projects/project-access.service';
 import { OBJECT_STORAGE, safeFileName, type ObjectStorage } from '../storage/storage.types';
 
-const ALLOWED_EXT = [
-  'png',
-  'jpg',
-  'jpeg',
-  'webp',
-  'gif',
-  'mp4',
-  'mov',
-  'webm',
-  'log',
-  'txt',
-  'zip',
-  'gz',
-  'json',
-  'xlog',
-];
 const MAX_FILE_BYTES = 200 * 1024 * 1024;
 
 const uploadTargetSchema = z.object({
@@ -87,8 +71,8 @@ export class AttachmentsController {
     const ctx = await this.access.require(key, user, 'defect.create');
     await this.defects.findByCode(ctx.project.id, code);
     for (const f of body.files) {
-      const ext = f.name.toLowerCase().split('.').pop() ?? '';
-      if (!ALLOWED_EXT.includes(ext)) throw new BadRequestException(`不支持的文件类型：${f.name}`);
+      if (!isAllowedAttachment(f.name))
+        throw new BadRequestException(`不支持的文件类型：${f.name}`);
     }
     // 每批上传一个随机子目录，避免同名文件互相覆盖
     const prefix = `web/${key}/${code}/${randomBytes(6).toString('hex')}/`;

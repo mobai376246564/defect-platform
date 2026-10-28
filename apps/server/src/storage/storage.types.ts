@@ -1,4 +1,4 @@
-/** 浏览器 / APP 直传附件所需的信息。 */
+/** 网页提单时浏览器直传附件所需的信息（APP 提单由服务端接收后写入存储）。 */
 export interface UploadTarget {
   driver: 'local' | 'cos';
   /** 本次上传允许写入的目录 */
@@ -36,11 +36,8 @@ export interface ObjectStorage {
   putFile(key: string, localPath: string, contentType?: string): Promise<void>;
   /** 删除对象（不存在的忽略），清理任务用 */
   deleteObjects(keys: string[]): Promise<void>;
-  /** 列出某前缀下的对象 key；suffix 用于过滤（如 manifest.json），olderThan 只列出在该时间之前写入的 */
-  listKeys(
-    prefix: string,
-    opts?: { suffix?: string; limit?: number; olderThan?: Date },
-  ): Promise<string[]>;
+  /** 列出某前缀下的全部对象 key；olderThan 只列出在该时间之前写入的 */
+  listKeys(prefix: string, opts?: { olderThan?: Date }): Promise<string[]>;
   /** 生成限时下载地址 */
   presignGet(key: string, expiresSec?: number): Promise<string>;
   /** 为某目录生成上传凭证，只允许写入该目录 */
@@ -64,6 +61,33 @@ export function assertSafeKey(key: string): string {
     throw new Error(`非法的对象 key：${key}`);
   }
   return normalized;
+}
+
+const CONTENT_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  mp4: 'video/mp4',
+  mov: 'video/quicktime',
+  webm: 'video/webm',
+  m4v: 'video/x-m4v',
+  m4a: 'audio/mp4',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  aac: 'audio/aac',
+  amr: 'audio/amr',
+  json: 'application/json',
+  log: 'text/plain; charset=utf-8',
+  txt: 'text/plain; charset=utf-8',
+  zip: 'application/zip',
+  gz: 'application/gzip',
+};
+
+/** 按扩展名取文件类型（不信任客户端声明的类型）；不认识的按二进制下载 */
+export function contentTypeOf(fileName: string): string {
+  return CONTENT_TYPES[fileName.toLowerCase().split('.').pop() ?? ''] ?? 'application/octet-stream';
 }
 
 /** 生成存储用的安全文件名：保留扩展名，去掉路径与特殊字符。 */

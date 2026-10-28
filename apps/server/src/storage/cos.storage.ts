@@ -22,7 +22,8 @@ export class CosStorage implements ObjectStorage {
   private readonly cos: COS;
 
   constructor(private readonly cfg: CosConfig) {
-    this.cos = new COS({ SecretId: cfg.secretId, SecretKey: cfg.secretKey });
+    // 单个请求最长 10 分钟：网络卡住时让抽帧等任务失败重试，而不是一直占着任务通道
+    this.cos = new COS({ SecretId: cfg.secretId, SecretKey: cfg.secretKey, Timeout: 10 * 60_000 });
   }
 
   private base(key: string) {
@@ -79,10 +80,7 @@ export class CosStorage implements ObjectStorage {
     }
   }
 
-  async listKeys(
-    prefix: string,
-    opts: { suffix?: string; limit?: number; olderThan?: Date } = {},
-  ): Promise<string[]> {
+  async listKeys(prefix: string, opts: { olderThan?: Date } = {}): Promise<string[]> {
     const out: string[] = [];
     let marker: string | undefined;
     for (;;) {
@@ -94,9 +92,7 @@ export class CosStorage implements ObjectStorage {
         MaxKeys: 1000,
       });
       for (const obj of res.Contents ?? []) {
-        const old = !opts.olderThan || new Date(obj.LastModified) < opts.olderThan;
-        if (old && (!opts.suffix || obj.Key.endsWith(opts.suffix))) out.push(obj.Key);
-        if (opts.limit && out.length >= opts.limit) return out;
+        if (!opts.olderThan || new Date(obj.LastModified) < opts.olderThan) out.push(obj.Key);
       }
       const page = res as unknown as { IsTruncated?: string; NextMarker?: string };
       if (page.IsTruncated !== 'true' || !page.NextMarker) return out;

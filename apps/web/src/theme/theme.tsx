@@ -12,7 +12,7 @@ const STORAGE_KEY = 'defect.theme';
 
 const FONT =
   "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif";
-export const MONO_FONT =
+const MONO_FONT =
   "'JetBrains Mono', 'SFMono-Regular', 'Cascadia Mono', Consolas, 'Liberation Mono', Menlo, monospace";
 
 /** 两种模式共用的外框颜色：顶栏始终是深色，保持工具感 */

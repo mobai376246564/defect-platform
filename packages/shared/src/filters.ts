@@ -72,7 +72,6 @@ export const FILTER_FIELDS = {
   closedAt: { label: '关闭时间', type: 'date' },
   dueAt: { label: '截止时间', type: 'date' },
   reopenCount: { label: '重新打开次数', type: 'number', required: true },
-  dupCount: { label: '重复反馈次数', type: 'number', required: true },
 } as const satisfies Record<string, FilterFieldDef>;
 
 export type FilterField = keyof typeof FILTER_FIELDS;
@@ -137,7 +136,6 @@ export const SORT_FIELDS = {
   dueAt: '截止时间',
   resolvedAt: '解决时间',
   reopenCount: '重新打开次数',
-  dupCount: '重复反馈次数',
   title: '标题',
 } as const;
 export type SortField = keyof typeof SORT_FIELDS;

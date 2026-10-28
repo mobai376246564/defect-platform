@@ -16,7 +16,7 @@ import type {
   VersionReport,
 } from '../../api/types';
 
-export const SERIES_COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4'];
+const SERIES_COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4'];
 
 export const SEVERITY_COLORS: Record<Severity, string> = {
   fatal: '#104281',
@@ -291,7 +291,7 @@ export function qualityOption(r: QualityReport): EChartsOption {
   };
 }
 
-export const FEEDBACK_STATUS: {
+const FEEDBACK_STATUS: {
   key: 'created' | 'failed' | 'pending';
   label: string;
 }[] = [

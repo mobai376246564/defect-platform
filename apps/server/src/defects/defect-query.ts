@@ -155,11 +155,10 @@ const SORT_COLUMN: Record<SortSpec['field'], { column: string; nullable: boolean
   dueAt: { column: 'dueAt', nullable: true },
   resolvedAt: { column: 'resolvedAt', nullable: true },
   reopenCount: { column: 'reopenCount', nullable: false },
-  dupCount: { column: 'dupCount', nullable: false },
   title: { column: 'title', nullable: false },
 };
 
-export function sortSpecs(q: Pick<ListQuery, 'sort' | 'order'>): SortSpec[] {
+function sortSpecs(q: Pick<ListQuery, 'sort' | 'order'>): SortSpec[] {
   // 旧写法 sort=createdAt&order=asc：单字段，方向取 order
   const text = q.sort && !q.sort.includes(':') ? `${q.sort}:${q.order ?? 'desc'}` : q.sort;
   const specs = parseSort(text);

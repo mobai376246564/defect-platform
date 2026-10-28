@@ -68,6 +68,19 @@ const envSchema = z
         message: '生产环境必须替换 JWT_SECRET',
       });
     }
+    // 本地存储的下载 / 上传链接靠这个密钥签名，用默认值等于谁都能伪造链接
+    if (
+      env.NODE_ENV === 'production' &&
+      env.STORAGE_DRIVER === 'local' &&
+      (env.LOCAL_STORAGE_SECRET === 'dev-local-storage-secret' ||
+        env.LOCAL_STORAGE_SECRET.startsWith('change-me'))
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['LOCAL_STORAGE_SECRET'],
+        message: '生产环境使用本地存储时必须设置 LOCAL_STORAGE_SECRET（openssl rand -hex 32）',
+      });
+    }
   });
 
 export type AppEnv = z.infer<typeof envSchema>;

@@ -145,7 +145,44 @@ describe('APP defect submission (e2e)', () => {
       codes.push(r.body.code);
     }
     expect(new Set(codes).size).toBe(2);
-    expect(await detail(codes[1]!)).toMatchObject({ title: '同一个崩溃 1', dupCount: 0 });
+    expect(await detail(codes[1]!)).toMatchObject({ title: '同一个崩溃 1' });
+  });
+
+  it('creates only one defect when the same reportId is submitted concurrently', async () => {
+    const reportId = randomUUID();
+    const results = await Promise.all(
+      [1, 2, 3].map(() =>
+        submit({ appId, reportId, description: '并发重试' }, [[Buffer.from(CRASH_LOG), 'a.log']]),
+      ),
+    );
+    const ok = results.filter((r) => r.status === 201);
+    // 认领成功的一个建单；其余要么正在处理（409），要么拿到同一个编号
+    expect(ok.filter((r) => r.body.created)).toHaveLength(1);
+    expect(results.every((r) => r.status === 201 || r.status === 409)).toBe(true);
+    expect(new Set(ok.map((r) => r.body.code)).size).toBe(1);
+    const again = await submit({ appId, reportId, description: '并发重试' }).expect(201);
+    expect(again.body).toMatchObject({ code: ok[0]!.body.code, created: false });
+    const d = await detail(ok[0]!.body.code);
+    expect(d.attachments).toHaveLength(1);
+  });
+
+  it('rejects unsupported file types and unbound APPs before storing files', async () => {
+    const html = await submit({ appId, description: '网页文件' }, [
+      [Buffer.from('<script>alert(1)</script>'), 'x.html'],
+    ]).expect(400);
+    expect(html.body.message).toContain('不支持的文件类型：x.html');
+    const unbound = await submit({ appId: 'com.not.bound', description: '未绑定' }, [
+      [PNG, 'a.png'],
+    ]).expect(400);
+    expect(unbound.body.message).toContain('还没有绑定到任何项目');
+    // 录音等格式可以上传，原样保存为“其他”附件
+    const voice = await submit({ appId, description: '带录音' }, [
+      [Buffer.from('fake-m4a'), 'voice.m4a'],
+    ]).expect(201);
+    expect((await detail(voice.body.code)).attachments[0]).toMatchObject({
+      fileName: 'voice.m4a',
+      kind: 'other',
+    });
   });
 
   it('keeps the reporter name in the description when no unique user matches', async () => {

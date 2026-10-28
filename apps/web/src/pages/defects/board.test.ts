@@ -15,7 +15,6 @@ const row = (over: Partial<DefectRow>): DefectRow => ({
   ownerIds: [],
   reporterId: null,
   source: 'web',
-  dupCount: 0,
   dueAt: null,
   createdAt: '2026-10-01T00:00:00Z',
   updatedAt: '2026-10-01T00:00:00Z',

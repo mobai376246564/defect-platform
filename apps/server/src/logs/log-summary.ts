@@ -1,4 +1,3 @@
-import { sha256Hex } from '../common/crypto';
 import { linesOf, type LogFile } from './log-archive';
 
 /**
@@ -26,17 +25,6 @@ const STACK_FRAME =
   /^\s+at\s+[\w$.<>]+\(.*\)|^\s*\d+\s+\S+\s+0x[0-9a-f]+|^\s*(?:at\s+)?[\w.`<>+]+[.:][\w`<>]+\s*\([^)]*\)\s*(?:\[0x[0-9a-f]+\]|\(at\s|in\s|$)/i;
 const EXCEPTION_HEAD =
   /(?:^|\s)((?:[a-zA-Z_$][\w$]*\.)+[A-Z][\w$]*(?:Exception|Error))\b|((?:NS|Swift)\w*(?:Exception|Error))/;
-/** 不带命名空间的异常名（C#、Unity 常见），如 “NullReferenceException: …” */
-const BARE_EXCEPTION = /(?:^|[\s|:])([A-Z][A-Za-z]*Exception)\s*:/;
-/** .NET 只打印了消息、没打印异常名时，按消息认出异常类型 */
-const DOTNET_MESSAGES: [RegExp, string][] = [
-  [/Object reference not set to an instance of an object/i, 'NullReferenceException'],
-  [/Index was outside the bounds of the array/i, 'IndexOutOfRangeException'],
-  [/The given key .*was not present in the dictionary/i, 'KeyNotFoundException'],
-  [/(?:Specified argument|Index) was out of (?:the )?range/i, 'ArgumentOutOfRangeException'],
-  [/has been destroyed but you are still trying to access it/i, 'MissingReferenceException'],
-  [/Collection was modified; enumeration operation may not execute/i, 'InvalidOperationException'],
-];
 /** 每个文件最多列出的不同错误段数 */
 const MAX_BLOCKS = 40;
 const TAIL_LINES = 20;
@@ -69,22 +57,6 @@ function isLeveled(lines: string[]): boolean {
   );
 }
 
-function exceptionTypeOf(line: string): { type: string; dotted: boolean } | null {
-  const head = EXCEPTION_HEAD.exec(line);
-  if (head?.[1] ?? head?.[2]) return { type: (head[1] ?? head[2])!, dotted: true };
-  const bare = BARE_EXCEPTION.exec(line);
-  if (bare?.[1]) return { type: bare[1], dotted: false };
-  const known = DOTNET_MESSAGES.find(([re]) => re.test(line));
-  return known ? { type: known[1], dotted: false } : null;
-}
-
-export interface LogSummary {
-  /** 写入缺陷“日志摘要”字段的文本 */
-  summary: string;
-  /** 第一个异常的类型与栈顶帧，用于去重指纹 */
-  exception?: { type: string; frames: string[] };
-}
-
 interface ErrorBlock {
   /** 最近一次出现时的行（带行号） */
   lines: string[];
@@ -100,9 +72,8 @@ interface ErrorBlock {
  * 3. 附上日志末尾片段（跳过已经列出的行），便于看到崩溃前后的上下文。
  * 摘要控制在约 8 KB 内，完整日志由 Claude Code 通过 MCP grep_log / read_log 按需读取。
  */
-export function summarizeLogs(files: LogFile[], maxChars = 8000): LogSummary {
+export function summarizeLogs(files: LogFile[], maxChars = 8000): string {
   const parts: string[] = [];
-  let exception: LogSummary['exception'];
 
   for (const f of files) {
     const lines = linesOf(f);
@@ -120,7 +91,6 @@ export function summarizeLogs(files: LogFile[], maxChars = 8000): LogSummary {
       if (!isError(line)) continue;
       const block = [line];
       const numbered = [`${i + 1}: ${clip(line)}`];
-      const frames: string[] = [];
       let j = i + 1;
       while (j < lines.length) {
         const next = lines[j] ?? '';
@@ -140,20 +110,9 @@ export function summarizeLogs(files: LogFile[], maxChars = 8000): LogSummary {
         }
         block.push(next);
         numbered.push(`${j + 1}: ${clip(next)}`);
-        if (isFrame) frames.push(next.trim());
         j++;
       }
       for (let k = i; k < j; k++) picked.add(k);
-      if (!exception) {
-        for (const l of block) {
-          const found = exceptionTypeOf(l);
-          // 只认出了类型、没有堆栈时不用于去重：否则每次启动都会出现的同一个空引用，会把所有反馈合并成一个缺陷
-          if (found && (found.dotted || frames.length > 0)) {
-            exception = { type: found.type, frames: frames.slice(0, 5) };
-            break;
-          }
-        }
-      }
       const key = normalize(block.join('\n'));
       const seen = blocks.get(key);
       if (seen) {
@@ -200,16 +159,5 @@ export function summarizeLogs(files: LogFile[], maxChars = 8000): LogSummary {
 
   let summary = parts.join('\n');
   if (summary.length > maxChars) summary = `…（已截断，仅保留末尾）\n${summary.slice(-maxChars)}`;
-  return { summary, exception };
-}
-
-/** 去重指纹：异常类型 + 栈顶 5 帧 + 大版本号（方案 5.2 第 7 步）。 */
-export function fingerprintOf(
-  exception: LogSummary['exception'],
-  appVersion: string,
-): string | null {
-  if (!exception) return null;
-  const major = appVersion.split('.')[0] ?? appVersion;
-  const frames = exception.frames.map((f) => f.replace(/:\d+\)/, ')')); // 去掉行号，避免小改动导致指纹变化
-  return sha256Hex([exception.type, ...frames, major].join('|')).slice(0, 32);
+  return summary;
 }

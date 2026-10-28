@@ -14,7 +14,7 @@ import {
 import type { Request, Response } from 'express';
 import { Public } from '../common/auth-user';
 import { LocalStorage } from './local.storage';
-import { OBJECT_STORAGE, type ObjectStorage } from './storage.types';
+import { OBJECT_STORAGE, contentTypeOf, type ObjectStorage } from './storage.types';
 
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 
@@ -49,8 +49,11 @@ export class LocalStorageController {
     if (!storage.verify('get', key, exp, sig)) throw new ForbiddenException('链接无效或已过期');
     const head = await storage.headObject(key);
     if (!head) throw new NotFoundException();
-    // sendFile 自带 Range（视频可拖动进度）、Last-Modified / ETag 与按扩展名的 Content-Type；
-    // 读文件出错时走回调，不会因为流的 error 事件没人处理而让进程崩溃
+    // sendFile 自带 Range（视频可拖动进度）、Last-Modified / ETag；
+    // 读文件出错时走回调，不会因为流的 error 事件没人处理而让进程崩溃。
+    // 只有图片、音视频在页面里直接打开，其他文件一律下载，不在平台域名下当网页渲染
+    const type = contentTypeOf(key);
+    const inline = /^(image|video|audio)\//.test(type);
     await new Promise<void>((resolve) => {
       res.sendFile(
         storage.filePath(key),
@@ -59,7 +62,12 @@ export class LocalStorageController {
           lastModified: true,
           dotfiles: 'allow',
           cacheControl: false,
-          headers: { 'Cache-Control': 'private, max-age=300' },
+          headers: {
+            'Cache-Control': 'private, max-age=300',
+            'Content-Type': type,
+            'X-Content-Type-Options': 'nosniff',
+            ...(inline ? {} : { 'Content-Disposition': 'attachment' }),
+          },
         },
         (err?: Error) => {
           if (err && !res.headersSent) res.status(404).end();

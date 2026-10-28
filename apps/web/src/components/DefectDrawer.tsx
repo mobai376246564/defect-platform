@@ -7,7 +7,7 @@ import { DefectPanel } from '../pages/defects/DefectDetailPage';
 const PARAM = 'defect';
 
 /** 缺陷编号形如 APP-12，项目 key 是最后一个“-”之前的部分 */
-export const projectKeyOf = (code: string) => code.slice(0, code.lastIndexOf('-'));
+const projectKeyOf = (code: string) => code.slice(0, code.lastIndexOf('-'));
 
 /**
  * 列表右侧的半屏缺陷详情：打开的缺陷记在地址参数 defect 里，

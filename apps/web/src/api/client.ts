@@ -1,6 +1,6 @@
 const TOKEN_KEY = 'defect.token';
 
-export class ApiError extends Error {
+class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,

@@ -6,7 +6,7 @@
 2. **APP 自动建单**：各 APP 调用提单接口，一次带上描述、截图、录屏、日志，平台按 APP 标识建到对应项目、自动提取日志摘要，同步返回缺陷编号（接口说明见 [docs/app-integration.md](docs/app-integration.md)）。
 3. **本地 Claude Code 修复**：平台提供 MCP Server，开发在本地 Claude Code 里输入缺陷编号，Claude 读取描述、截图、录屏关键帧、日志，结合本地代码分析修复，并回写结论。
 
-技术方案与调研见 [调研/缺陷管理平台技术方案报告.md](调研/缺陷管理平台技术方案报告.md)，部署见 [docs/deploy-tencent-cloud.md](docs/deploy-tencent-cloud.md)。
+技术方案与调研见 [调研/缺陷管理平台技术方案报告.md](调研/缺陷管理平台技术方案报告.md)，部署见 [docs/deploy-tencent-cloud.md](docs/deploy-tencent-cloud.md)（容器部署，推送到部署仓库 `main` 自动更新），单机部署见 [docs/deploy-single-host.md](docs/deploy-single-host.md)，APP 接入见 [docs/app-integration.md](docs/app-integration.md)。
 
 ## 目录结构
 
@@ -18,6 +18,7 @@ apps/server            NestJS 服务端：REST API、APP 提单接口、后台�
 apps/web               React + Ant Design 管理后台
 packages/shared        前后端共享：字段枚举、工作流引擎、权限矩阵、报表口径
 deploy/                Dockerfile、Nginx、docker-compose、单机 pm2 部署
+.github/workflows/      推送到部署仓库 main 后在云服务器上自动部署
 docs/                  部署手册、APP 提单接入说明
 调研/                  技术方案报告
 ```

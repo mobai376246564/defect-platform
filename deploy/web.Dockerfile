@@ -1,6 +1,7 @@
 # 网页镜像：Vite 构建静态文件，Nginx 提供静态资源并反向代理 /api 到服务端，在仓库根目录执行：
 #   docker build -f deploy/web.Dockerfile -t defect-web:<版本> .
-# 国内网络构建时可传 npm 镜像：--build-arg NPM_REGISTRY=https://mirrors.cloud.tencent.com/npm/
+# 国内网络构建时可传 npm 镜像：--build-arg NPM_REGISTRY=http://mirrors.tencentyun.com/npm/
+# （腾讯云 CVM 内网源；在腾讯云外用 https://registry.npmmirror.com）；下载失败会自动重试几次。
 # 反代目标默认是 compose 里的 server:3000，其他编排方式用 --build-arg API_UPSTREAM=<主机:端口> 修改。
 
 ARG NODE_IMAGE=node:22-bookworm-slim
@@ -9,7 +10,9 @@ ARG NGINX_IMAGE=nginx:1.27-alpine
 FROM ${NODE_IMAGE} AS build
 ARG NPM_REGISTRY=
 WORKDIR /app
-RUN if [ -n "$NPM_REGISTRY" ]; then npm config set registry "$NPM_REGISTRY"; fi
+RUN npm config set fetch-retries 5 && npm config set fetch-retry-mintimeout 20000 \
+  && npm config set fetch-retry-maxtimeout 120000 \
+  && if [ -n "$NPM_REGISTRY" ]; then npm config set registry "$NPM_REGISTRY"; fi
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/shared/package.json packages/shared/
 COPY apps/server/package.json apps/server/
