@@ -81,10 +81,13 @@ describe('APP defect submission (e2e)', () => {
         reporterName: testerName,
         appVersion: '3.12.0',
         appBuild: '31200',
+        appCommit: 'a1b2c3d',
         deviceModel: 'Pixel 9',
         osVersion: 'Android 15',
         page: 'OrderDetailActivity',
         frequency: 'always',
+        // multipart 里的换行按规范是 \r\n，保存时统一成 \n
+        steps: '1. 支付\r\n2. 返回订单页',
         extra: JSON.stringify({ network: 'WIFI' }),
       },
       [
@@ -103,9 +106,13 @@ describe('APP defect submission (e2e)', () => {
       title: '支付成功后返回 APP，订单页仍显示待支付',
       severity: 'normal',
       frequency: 'always',
+      steps: '1. 支付\n2. 返回订单页',
+      appCommit: 'a1b2c3d',
       reporterId: testerId,
+      verifierId: testerId,
     });
     expect(d.description).toContain(`APP：${appId} 3.12.0 (31200)`);
+    expect(d.description).toContain('页面：OrderDetailActivity');
     expect(d.description).toContain('设备：Pixel 9 / Android 15');
     expect(d.description).not.toContain('提单人');
     expect(d.logSummary).toContain('IllegalStateException');

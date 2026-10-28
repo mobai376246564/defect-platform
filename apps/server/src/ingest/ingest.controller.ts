@@ -25,10 +25,13 @@ import {
   type UploadedFile,
 } from './ingest.service';
 
+/** multipart 规范会把文本字段里的换行转成 \r\n，统一转回 \n 再保存 */
+const lf = (v: unknown) => (typeof v === 'string' ? v.replace(/\r\n?/g, '\n') : v);
+
 /** multipart 表单里的文本字段都是字符串；空字符串按未填处理 */
 const text = (max: number) =>
   z.preprocess(
-    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : lf(v)),
     z.string().trim().max(max).optional(),
   );
 
@@ -38,11 +41,14 @@ const appDefectSchema = z.object({
     .trim()
     .min(1, '缺少 appId（APP 标识）')
     .max(200),
-  description: z
-    .string({ error: '缺少 description（缺陷描述）' })
-    .trim()
-    .min(1, '缺少 description（缺陷描述）')
-    .max(20000),
+  description: z.preprocess(
+    lf,
+    z
+      .string({ error: '缺少 description（缺陷描述）' })
+      .trim()
+      .min(1, '缺少 description（缺陷描述）')
+      .max(20000),
+  ),
   title: text(120),
   reportId: z.preprocess(
     (v) => (v === '' ? undefined : v),
