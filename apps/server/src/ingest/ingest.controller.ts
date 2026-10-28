@@ -55,6 +55,16 @@ const appDefectSchema = z.object({
     z.uuid('reportId 必须是 UUID').optional(),
   ),
   reporterName: text(50),
+  /** 处理人姓名：多个用逗号、顿号或分号分隔，也可以重复传 ownerNames 字段 */
+  ownerNames: z.preprocess(
+    (v) => {
+      const raw = Array.isArray(v) ? v.join(',') : v;
+      if (typeof raw !== 'string') return undefined;
+      const names = [...new Set(raw.split(/[,，、;；\n]/).map((s) => s.trim()))].filter(Boolean);
+      return names.length ? names : undefined;
+    },
+    z.array(z.string().max(50, '处理人姓名最多 50 个字')).max(10, '处理人最多 10 个').optional(),
+  ),
   severity: z.preprocess((v) => (v === '' ? undefined : v), z.enum(SEVERITY_KEYS).optional()),
   frequency: z.preprocess(
     (v) => (v === '' ? undefined : v),

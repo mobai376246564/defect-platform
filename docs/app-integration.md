@@ -19,26 +19,35 @@ Content-Type: multipart/form-data
 
 ### 表单字段
 
-| 字段           | 必填 | 说明                                                                                        |
-| -------------- | ---- | ------------------------------------------------------------------------------------------- |
-| `appId`        | 是   | APP 标识，必须已在平台绑定到项目                                                            |
-| `description`  | 是   | 缺陷描述（用户输入或语音转写后的文字），最多 20000 字                                       |
-| `reportId`     | 建议 | 本次提交的唯一 ID（UUID）。网络超时重试时**用同一个值**，平台不会重复建单，直接返回原编号   |
-| `reporterName` | 建议 | 提单人姓名。和平台用户姓名完全一致时，自动记为该用户提的单；匹配不上时只把姓名写进描述      |
-| `title`        | 否   | 标题，最多 120 字。不传时取描述的第一句话（最多 60 字）                                     |
-| `severity`     | 否   | 严重程度：`fatal` 致命、`serious` 严重、`normal` 一般（默认）、`prompt` 提示、`advice` 建议 |
-| `frequency`    | 否   | 重现规律：`always` 可重现、`random` 随机重现、`never` 不可重现                              |
-| `steps`        | 否   | 复现步骤                                                                                    |
-| `appVersion`   | 否   | APP 版本号，如 `3.12.0`                                                                     |
-| `appBuild`     | 否   | 构建号，如 `31200`                                                                          |
-| `appCommit`    | 否   | 构建对应的代码提交，便于开发定位                                                            |
-| `deviceModel`  | 否   | 设备型号，如 `Pixel 9`、`iPhone 15`                                                         |
-| `osVersion`    | 否   | 系统版本，如 `Android 15`、`iOS 18.1`                                                       |
-| `page`         | 否   | 出问题的页面                                                                                |
-| `extra`        | 否   | 其他上下文，**JSON 对象字符串**，如 `{"network":"WIFI","uid":"..."}`，原样保存              |
-| `files`        | 否   | 附件，可以重复多次（每个文件一个 `files` 字段）                                             |
+| 字段           | 必填 | 说明                                                                                               |
+| -------------- | ---- | -------------------------------------------------------------------------------------------------- |
+| `appId`        | 是   | APP 标识，必须已在平台绑定到项目                                                                   |
+| `description`  | 是   | 缺陷描述（用户输入或语音转写后的文字），最多 20000 字                                              |
+| `reportId`     | 建议 | 本次提交的唯一 ID（UUID）。网络超时重试时**用同一个值**，平台不会重复建单，直接返回原编号          |
+| `reporterName` | 建议 | 提单人姓名。和平台用户姓名完全一致时，自动记为该用户提的单；匹配不上时只把姓名写进描述             |
+| `ownerNames`   | 否   | 处理人姓名，可以多个，用逗号、顿号或分号分隔，如 `开发小李,张三`，最多 10 个。规则见下方「处理人」 |
+| `title`        | 否   | 标题，最多 120 字。不传时取描述的第一句话（最多 60 字）                                            |
+| `severity`     | 否   | 严重程度：`fatal` 致命、`serious` 严重、`normal` 一般（默认）、`prompt` 提示、`advice` 建议        |
+| `frequency`    | 否   | 重现规律：`always` 可重现、`random` 随机重现、`never` 不可重现                                     |
+| `steps`        | 否   | 复现步骤                                                                                           |
+| `appVersion`   | 否   | APP 版本号，如 `3.12.0`                                                                            |
+| `appBuild`     | 否   | 构建号，如 `31200`                                                                                 |
+| `appCommit`    | 否   | 构建对应的代码提交，便于开发定位                                                                   |
+| `deviceModel`  | 否   | 设备型号，如 `Pixel 9`、`iPhone 15`                                                                |
+| `osVersion`    | 否   | 系统版本，如 `Android 15`、`iOS 18.1`                                                              |
+| `page`         | 否   | 出问题的页面                                                                                       |
+| `extra`        | 否   | 其他上下文，**JSON 对象字符串**，如 `{"network":"WIFI","uid":"..."}`，原样保存                     |
+| `files`        | 否   | 附件，可以重复多次（每个文件一个 `files` 字段）                                                    |
 
 空字符串按「没填」处理。
+
+### 处理人
+
+- 按姓名匹配平台用户，全平台用户都可以被指派。同名时优先匹配本项目成员，仍然重名就不指派。
+- 匹配上的人都成为处理人，会收到站内通知。
+- 匹配不上的姓名（不存在或重名）不影响提单，会写在缺陷描述的「处理人：」一行里，便于后续手动指派。
+- 一个都匹配不上，或者不传 `ownerNames` 时，按项目的默认规则指派：选了模块时是模块负责人，否则是项目默认处理人。
+- 被指派的人如果不是项目成员，描述里会提示，需要先把他加入项目，他才能看到并处理这个缺陷。
 
 ### 附件
 
@@ -86,6 +95,7 @@ curl -X POST https://defects.example.com/api/v1/app/defects \
   -F reportId=$(uuidgen) \
   -F "description=支付成功后返回 APP，订单页仍显示待支付" \
   -F reporterName=张三 \
+  -F ownerNames=开发小李,李四 \
   -F appVersion=3.12.0 -F deviceModel="Pixel 9" -F osVersion="Android 15" \
   -F files=@screenshot.png -F files=@record.mp4 -F files=@app.log
 ```
@@ -98,6 +108,7 @@ val body = MultipartBody.Builder().setType(MultipartBody.FORM)
     .addFormDataPart("reportId", reportId)            // 首次提交时生成并保存，重试时复用
     .addFormDataPart("description", description)
     .addFormDataPart("reporterName", reporterName)
+    .addFormDataPart("ownerNames", ownerNames.joinToString(","))   // 处理人，可选
     .addFormDataPart("appVersion", BuildConfig.VERSION_NAME)
     .addFormDataPart("deviceModel", Build.MODEL)
     .addFormDataPart("osVersion", "Android ${Build.VERSION.RELEASE}")
@@ -131,6 +142,7 @@ field("appId", Bundle.main.bundleIdentifier!)
 field("reportId", reportId)
 field("description", description)
 field("reporterName", reporterName)
+field("ownerNames", ownerNames.joined(separator: ","))   // 处理人，可选
 try attachments.forEach(file)
 body.append("--\(boundary)--\r\n".data(using: .utf8)!)
 // 录屏较大时用 uploadTask(with:fromFile:) 先把 body 写到临时文件再上传，避免占用太多内存
@@ -144,6 +156,7 @@ var form = new List<IMultipartFormSection> {
     new MultipartFormDataSection("reportId", reportId),
     new MultipartFormDataSection("description", description),
     new MultipartFormDataSection("reporterName", reporterName),
+    new MultipartFormDataSection("ownerNames", string.Join(",", ownerNames)),   // 处理人，可选
     new MultipartFormDataSection("appVersion", Application.version),
     new MultipartFormDataSection("deviceModel", SystemInfo.deviceModel),
     new MultipartFormDataSection("osVersion", SystemInfo.operatingSystem),

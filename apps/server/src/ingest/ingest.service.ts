@@ -31,6 +31,8 @@ export interface AppDefectInput {
   title?: string;
   reportId?: string;
   reporterName?: string;
+  /** 处理人姓名，可以多个 */
+  ownerNames?: string[];
   severity?: Severity;
   frequency?: Frequency;
   steps?: string;
@@ -123,6 +125,7 @@ export class IngestService {
       const { summary, fingerprint } = await this.analyzeLogs(files, input.appVersion);
       const stored = await this.store(storagePrefix, files);
       const reporter = await this.matchReporter(project, input.reporterName);
+      const owners = await this.matchOwners(project, input.ownerNames ?? []);
       const ctx = {
         project,
         workflow: project.workflow as unknown as WorkflowDefinition,
@@ -133,8 +136,9 @@ export class IngestService {
         { kind: 'system' },
         {
           title: titleOf(input),
-          description: this.describe(input, reportId, reporter.note),
+          description: this.describe(input, reportId, reporter.note, owners.notes),
           steps: input.steps ?? '',
+          ownerIds: owners.ownerIds,
           expected: '',
           actual: '',
           severity: input.severity ?? 'normal',
@@ -223,24 +227,24 @@ export class IngestService {
   }
 
   /**
-   * 提单人按姓名匹配平台用户：先在项目成员里找，再在全部正常账号里找，唯一匹配才关联。
-   * 匹配不上（或有重名）时不关联，只把姓名写进描述。
+   * 按姓名匹配平台用户：先在项目成员里找，再在全部正常账号里找，唯一匹配才关联。
+   * 匹配不上（或有重名）时返回说明，由调用方写进描述。
    */
-  private async matchReporter(
+  private async matchUser(
     project: Project,
-    name: string | undefined,
-  ): Promise<{ userId: string | null; note: string | null }> {
-    if (!name) return { userId: null, note: null };
+    name: string,
+  ): Promise<{ userId: string; member: boolean } | { userId: null; note: string }> {
     const active = { name, status: 'active', disabledAt: null };
     const members = await this.prisma.user.findMany({
       where: { ...active, memberships: { some: { projectId: project.id } } },
       select: { id: true },
       take: 2,
     });
+    if (members.length === 1) return { userId: members[0]!.id, member: true };
     const candidates = members.length
       ? members
       : await this.prisma.user.findMany({ where: active, select: { id: true }, take: 2 });
-    if (candidates.length === 1) return { userId: candidates[0]!.id, note: null };
+    if (candidates.length === 1) return { userId: candidates[0]!.id, member: false };
     return {
       userId: null,
       note:
@@ -248,6 +252,38 @@ export class IngestService {
           ? `${name}（平台有多个同名用户，未自动关联）`
           : `${name}（未匹配到平台用户）`,
     };
+  }
+
+  /** 提单人：唯一匹配才记为创建人，否则只把姓名写进描述 */
+  private async matchReporter(
+    project: Project,
+    name: string | undefined,
+  ): Promise<{ userId: string | null; note: string | null }> {
+    if (!name) return { userId: null, note: null };
+    const m = await this.matchUser(project, name);
+    return 'note' in m ? { userId: null, note: m.note } : { userId: m.userId, note: null };
+  }
+
+  /**
+   * 处理人：逐个按姓名匹配，匹配上的指派（全平台用户都可以）；一个都匹配不上时返回空，
+   * 由建单按默认规则（模块负责人 / 项目默认处理人）指派。匹配不上的、不是项目成员的写进描述。
+   */
+  private async matchOwners(
+    project: Project,
+    names: string[],
+  ): Promise<{ ownerIds: string[] | undefined; notes: string[] }> {
+    const ownerIds: string[] = [];
+    const notes: string[] = [];
+    for (const name of names) {
+      const m = await this.matchUser(project, name);
+      if ('note' in m) notes.push(m.note);
+      else {
+        if (!ownerIds.includes(m.userId)) ownerIds.push(m.userId);
+        if (!m.member) notes.push(`${name}（不是项目成员，加入项目后才能看到并处理）`);
+      }
+    }
+    if (names.length && ownerIds.length === 0) notes.push('已按默认规则指派处理人');
+    return { ownerIds: ownerIds.length ? ownerIds : undefined, notes };
   }
 
   /** 挂附件并排录屏抽帧任务 */
@@ -269,13 +305,19 @@ export class IngestService {
     await this.media.enqueueFor(created);
   }
 
-  private describe(input: AppDefectInput, reportId: string, reporterNote: string | null): string {
+  private describe(
+    input: AppDefectInput,
+    reportId: string,
+    reporterNote: string | null,
+    ownerNotes: string[],
+  ): string {
     const lines = [input.description, '', '---', `来源：APP 提单（reportId ${reportId}）`];
     const version = [input.appVersion, input.appBuild && `(${input.appBuild})`]
       .filter(Boolean)
       .join(' ');
     lines.push(`APP：${input.appId}${version ? ` ${version}` : ''}`);
     if (reporterNote) lines.push(`提单人：${reporterNote}`);
+    if (ownerNotes.length) lines.push(`处理人：${ownerNotes.join('；')}`);
     const device = [input.deviceModel, input.osVersion].filter(Boolean).join(' / ');
     if (device) lines.push(`设备：${device}`);
     if (input.page) lines.push(`页面：${input.page}`);

@@ -188,4 +188,42 @@ describe('APP defect submission (e2e)', () => {
       .expect(409);
     expect(conflict.body.message).toContain('已绑定到项目「接入测试」');
   });
+
+  it('assigns owners by name, including users outside the project', async () => {
+    const devName = `处理开发${key}`;
+    const dev = await createUser(ctx, { name: devName });
+    await ctx.http
+      .post(`/api/v1/projects/${key}/members`)
+      .set(auth(adminToken))
+      .send({ email: dev.email, role: 'developer' })
+      .expect(201);
+    const outsiderName = `项目外${key}`;
+    const outsider = await createUser(ctx, { name: outsiderName });
+
+    // 逗号、顿号分隔，重复的名字只算一次
+    const res = await submit({
+      appId,
+      description: '指派处理人',
+      ownerNames: `${devName}，${outsiderName}、查无此人,${devName}`,
+    }).expect(201);
+    const d = await detail(res.body.code);
+    expect(d.ownerIds).toEqual([dev.id, outsider.id]);
+    expect(d.description).toContain(
+      `处理人：${outsiderName}（不是项目成员，加入项目后才能看到并处理）；查无此人（未匹配到平台用户）`,
+    );
+
+    // 一个都匹配不上：照常建单，按默认规则指派（本项目没配模块负责人和默认处理人，所以为空）
+    const none = await submit({ appId, description: '无人匹配', ownerNames: '谁也不是' }).expect(
+      201,
+    );
+    const n = await detail(none.body.code);
+    expect(n.ownerIds).toEqual([]);
+    expect(n.description).toContain('处理人：谁也不是（未匹配到平台用户）；已按默认规则指派处理人');
+
+    await submit({
+      appId,
+      description: '太多处理人',
+      ownerNames: Array.from({ length: 11 }, (_, i) => `人${i}`).join(','),
+    }).expect(400);
+  });
 });

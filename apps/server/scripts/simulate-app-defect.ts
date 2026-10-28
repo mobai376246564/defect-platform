@@ -3,6 +3,7 @@
  *
  * 场景合起来覆盖接口的每一个字段和每一种取值：
  * - 字段：appId、description、title（传 / 不传）、reportId（含重试）、reporterName（匹配 / 不匹配 / 不传）、
+ *   ownerNames（一个 / 多个 / 匹配不上走默认规则 / 部分匹配 / 不传）、
  *   severity（五个取值 + 不传）、frequency（三个取值 + 不传）、steps、appVersion、appBuild、appCommit、
  *   deviceModel、osVersion、page、extra、files（无附件 / 多附件）；
  * - 附件：png、jpg 截图，mp4 录屏（15 秒、60 秒、约 150 MB 的 3 分钟），log、txt 日志，
@@ -241,12 +242,14 @@ interface Scenario {
 const SCENARIOS: Scenario[] = [
   {
     key: 'android-crash',
-    label: '安卓支付后闪退：不传标题、严重、必现，3 张大 PNG + 3 MB logcat + 15 秒录屏',
+    label:
+      '安卓支付后闪退：不传标题、严重、必现、指派一个处理人，3 张大 PNG + 3 MB logcat + 15 秒录屏',
     logHint: 'IllegalStateException',
     build: async () => ({
       fields: {
         description: '用微信支付成功后返回 APP，订单页仍显示待支付，几秒后闪退。每次都能复现。',
         reporterName: '测试小王',
+        ownerNames: '开发小李',
         severity: 'serious',
         frequency: 'always',
         steps: '1. 购物车结算\n2. 选择微信支付并完成付款\n3. 返回 APP 查看订单详情',
@@ -284,12 +287,13 @@ const SCENARIOS: Scenario[] = [
   },
   {
     key: 'ios-layout',
-    label: 'iOS 布局错位：带标题、一般、必现，2 张大 JPG（竖屏 + 横屏）',
+    label: 'iOS 布局错位：带标题、一般、必现、指派两个处理人，2 张大 JPG（竖屏 + 横屏）',
     build: async () => ({
       fields: {
         title: '订单列表在 iPhone 15 上价格与按钮重叠',
         description: '横竖屏切换后，订单列表右侧价格压在「再次购买」按钮上，看不清金额。',
         reporterName: '测试小王',
+        ownerNames: '开发小李,测试小王',
         severity: 'normal',
         frequency: 'always',
         steps: '1. 打开「我的订单」\n2. 横屏后再竖屏',
@@ -319,12 +323,13 @@ const SCENARIOS: Scenario[] = [
   {
     key: 'unity-freeze',
     label:
-      'Unity 战斗卡死：致命、随机，提单人匹配不上，zip 日志包（8 MB + 2 MB）+ 60 秒 1080p 录屏',
+      'Unity 战斗卡死：致命、随机，提单人和处理人都匹配不上（按默认规则指派），zip 日志包（8 MB + 2 MB）+ 60 秒 1080p 录屏',
     logHint: 'NullReferenceException',
     build: async () => ({
       fields: {
         description: '第三关 Boss 战释放大招后画面卡住不动，音乐还在放，只能杀进程。出现过三次。',
         reporterName: '张三',
+        ownerNames: '不存在的开发',
         severity: 'fatal',
         frequency: 'random',
         appVersion: '1.0.22',
@@ -377,13 +382,15 @@ const SCENARIOS: Scenario[] = [
   },
   {
     key: 'login-random',
-    label: '登录偶现失败：严重、随机，提单人匹配不上，1 MB 网络日志 txt + 截图',
+    label:
+      '登录偶现失败：严重、随机，提单人匹配不上，处理人一个匹配一个不匹配，1 MB 网络日志 txt + 截图',
     logHint: '502',
     build: async () => ({
       fields: {
         title: '弱网下登录偶现一直转圈',
         description: '地铁里用 4G 登录，大概五次有一次一直转圈，30 秒后提示网络错误。',
         reporterName: '外包测试-李四',
+        ownerNames: '开发小李、外包开发-王五',
         severity: 'serious',
         frequency: 'random',
         steps: '1. 切到 4G 弱网\n2. 输入账号密码登录',
@@ -612,6 +619,43 @@ async function verify(
     );
   } else {
     has('reporterName 不传', d.reporterId == null && !desc.includes('提单人：'), '无提单人');
+  }
+  // 处理人：每个姓名要么成了处理人（项目成员按姓名对上），要么在描述的「处理人：」一行里说明了原因
+  const ownerIds = (d.ownerIds ?? []) as string[];
+  const projectRes = await fetch(`${base}/api/v1/projects/${key}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const members = projectRes.ok
+    ? (((await projectRes.json()) as Json).members as { id: string; name: string }[])
+    : [];
+  const ownerNamesOf = ownerIds.map((id) => members.find((m) => m.id === id)?.name ?? id);
+  const ownerLine = desc.split('\n').find((l) => l.startsWith('处理人：')) ?? '';
+  if (fields.ownerNames) {
+    for (const name of [
+      ...new Set(
+        fields.ownerNames
+          .split(/[,，、;；]/)
+          .map((n) => n.trim())
+          .filter(Boolean),
+      ),
+    ]) {
+      const assigned = ownerNamesOf.includes(name);
+      const noted = ownerLine.includes(`${name}（`);
+      has(
+        `ownerNames 处理人「${name}」`,
+        assigned || noted,
+        assigned
+          ? '已指派'
+          : noted
+            ? ownerLine.slice(ownerLine.indexOf(name)).split('；')[0]!
+            : `未指派也没有说明，当前处理人 ${JSON.stringify(ownerNamesOf)}`,
+      );
+    }
+    if (ownerLine.includes('已按默认规则指派')) {
+      has('ownerNames 都匹配不上', true, `按默认规则指派：${JSON.stringify(ownerNamesOf)}`);
+    }
+  } else {
+    has('ownerNames 不传', !ownerLine, `按默认规则指派：${JSON.stringify(ownerNamesOf)}`);
   }
   const atts = ((d.attachments ?? []) as Json[]).map((a) => ({
     name: String(a.fileName),

@@ -386,8 +386,9 @@ function AppIntegrationCard({ project, editable }: { project: ProjectDetail; edi
           </Space.Compact>
           <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: '6px 0 0' }}>
             multipart/form-data，一次请求传完：appId（上面绑定的标识，必填）、description（缺陷描述，必填）、
-            reporterName（提单人姓名，按姓名自动关联平台用户）、files（截图、录屏、日志，可多个）。
-            成功返回缺陷编号；完整字段与示例见仓库文档 docs/app-integration.md。
+            reporterName（提单人姓名）、ownerNames（处理人姓名，可多个，都按姓名自动关联平台用户）、
+            files（截图、录屏、日志，可多个）。 成功返回缺陷编号；完整字段与示例见仓库文档
+            docs/app-integration.md。
           </Typography.Paragraph>
         </div>
       </Space>
