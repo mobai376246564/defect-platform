@@ -887,6 +887,27 @@ body.col-resizing {
   padding-block: 4px 0;
 }
 
+/* 点击附件框弹出的小窗：上面是粘贴 / 拖拽区，下面是“添加本地文件” */
+.attachment-pick {
+  width: 220px;
+}
+
+.attachment-paste.ant-upload-wrapper .ant-upload-drag .ant-upload-btn {
+  padding: 0;
+}
+
+.attachment-paste-zone {
+  padding: 22px 12px;
+  color: var(--ant-color-text-secondary, #666);
+  outline: none;
+}
+
+.attachment-pick .ant-upload-wrapper:not(.attachment-paste),
+.attachment-pick .ant-upload-wrapper:not(.attachment-paste) .ant-upload {
+  display: block;
+  margin-top: 4px;
+}
+
 /* 待上传附件里的图片小预览（粘贴截图后确认贴的是哪张） */
 .attachment-thumb {
   width: 40px;

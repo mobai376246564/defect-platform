@@ -1,6 +1,6 @@
-import { DeleteOutlined, InboxOutlined, UploadOutlined } from '@ant-design/icons';
+import { DeleteOutlined, InboxOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
 import { ATTACHMENT_EXTENSIONS, attachmentKindOf } from '@defect/shared';
-import { App, Button, InputNumber, List, Space, Tag, Typography, Upload } from 'antd';
+import { App, Button, InputNumber, List, Popover, Space, Tag, Typography, Upload } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import type { PendingFile } from '../api/upload';
 import { addFiles, namePasted } from './attachment-files';
@@ -9,23 +9,23 @@ const ACCEPT = ATTACHMENT_EXTENSIONS.map((e) => `.${e}`).join(',');
 
 /**
  * 选择要上传的截图 / 录屏 / 日志；录屏可标记“问题出现的时间点”（方案 7.3）。
- * variant=dragger：大拖拽框（新建缺陷）；button：一个小按钮（缺陷详情里补传，不占地方）。
- * paste=true 时监听整个页面的 Ctrl+V：剪贴板里的图片（截图工具、浏览器“复制图片”）或复制的文件加入附件；
- * 光标在输入框里且剪贴板带文字时照常粘贴文字。
+ * variant=dragger（新建缺陷）：点击附件框，在框的下边缘弹出小窗，此时 Ctrl+V 粘贴剪贴板里的图片 / 文件，
+ * 或“添加本地文件”；点小窗外面关闭。文件也可以直接拖到附件框上。
+ * variant=button：一个小按钮（缺陷详情里补传，不占地方）。
  */
 export function AttachmentPicker({
   value,
   onChange,
   variant = 'dragger',
-  paste = false,
 }: {
   value: PendingFile[];
   onChange: (files: PendingFile[]) => void;
   variant?: 'dragger' | 'button';
-  paste?: boolean;
 }) {
   const { message } = App.useApp();
-  // 粘贴监听只注册一次，读最新的列表与回调
+  const [picking, setPicking] = useState(false);
+  const pasteZone = useRef<HTMLDivElement>(null);
+  // 粘贴监听在小窗打开时注册一次，读最新的列表与回调
   const latest = useRef({ value, onChange });
   latest.current = { value, onChange };
 
@@ -35,24 +35,26 @@ export function AttachmentPicker({
     latest.current.onChange(files);
     if (rejected.length) message.warning(`以下文件没有加入：${rejected.join('、')}`);
     else if (how && added) message.success(`已${how} ${added} 个附件`);
+    if (added) setPicking(false);
   };
 
   useEffect(() => {
-    if (!paste) return;
+    if (!picking) return;
+    // 打开后把焦点放进小窗（等小窗挂载），Ctrl+V 不会落到别的输入框里
+    const timer = setTimeout(() => pasteZone.current?.focus());
     const onPaste = (e: ClipboardEvent) => {
-      const data = e.clipboardData;
-      const files = [...(data?.files ?? [])].filter((f) => f.size > 0);
+      const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.size > 0);
       if (!files.length) return;
-      const target = e.target as HTMLElement | null;
-      const typing = target?.closest('input, textarea, [contenteditable="true"]');
-      if (typing && data?.getData('text/plain')) return;
       e.preventDefault();
       add(namePasted(files), '粘贴');
     };
     document.addEventListener('paste', onPaste);
-    return () => document.removeEventListener('paste', onPaste);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('paste', onPaste);
+    };
     // add 通过 ref 读最新的列表与回调，不需要随渲染重新注册
-  }, [paste]);
+  }, [picking]);
 
   const props = {
     multiple: true,
@@ -64,6 +66,20 @@ export function AttachmentPicker({
       return false;
     },
   };
+  const picker = (
+    <div className="attachment-pick">
+      <Upload.Dragger {...props} openFileDialogOnClick={false} className="attachment-paste">
+        <div ref={pasteZone} tabIndex={-1} className="attachment-paste-zone">
+          粘贴或拖拽至这里上传
+        </div>
+      </Upload.Dragger>
+      <Upload {...props}>
+        <Button type="text" block icon={<PlusOutlined />}>
+          添加本地文件
+        </Button>
+      </Upload>
+    </div>
+  );
   return (
     <div>
       {variant === 'button' ? (
@@ -73,20 +89,30 @@ export function AttachmentPicker({
           </Button>
         </Upload>
       ) : (
-        <Upload.Dragger {...props} className="attachment-dragger">
-          {/* 图标放在文字左边，拖拽框只占两行字的高度 */}
-          <div className="attachment-drop">
-            <InboxOutlined className="attachment-drop-icon" />
-            <div>
-              <p className="ant-upload-text">
-                点击、拖拽{paste ? '或 Ctrl+V 粘贴' : ''}上传截图、录屏、日志
-              </p>
-              <p className="ant-upload-hint">
-                单个文件不超过 200 MB，最多 10 个；录屏建议标记问题出现的时间点
-              </p>
-            </div>
+        <Popover
+          trigger="click"
+          placement="bottomLeft"
+          arrow={false}
+          open={picking}
+          onOpenChange={setPicking}
+          content={picker}
+          styles={{ body: { padding: 8 } }}
+        >
+          <div>
+            <Upload.Dragger {...props} openFileDialogOnClick={false} className="attachment-dragger">
+              {/* 图标放在文字左边，拖拽框只占两行字的高度 */}
+              <div className="attachment-drop">
+                <InboxOutlined className="attachment-drop-icon" />
+                <div>
+                  <p className="ant-upload-text">点击后粘贴截图或添加本地文件，也可拖拽到这里</p>
+                  <p className="ant-upload-hint">
+                    单个文件不超过 200 MB，最多 10 个；录屏建议标记问题出现的时间点
+                  </p>
+                </div>
+              </div>
+            </Upload.Dragger>
           </div>
-        </Upload.Dragger>
+        </Popover>
       )}
       {value.length > 0 && (
         <List

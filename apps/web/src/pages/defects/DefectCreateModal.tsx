@@ -257,8 +257,7 @@ export function DefectCreateModal({
         )}
         {show('attachments') && (
           <Form.Item label="附件" style={{ marginBottom: 12 }}>
-            {/* 弹窗打开期间 Ctrl+V 可直接粘贴截图 */}
-            <AttachmentPicker value={files} onChange={setFiles} paste={open} />
+            <AttachmentPicker value={files} onChange={setFiles} />
           </Form.Item>
         )}
         {more.length > 0 && (
