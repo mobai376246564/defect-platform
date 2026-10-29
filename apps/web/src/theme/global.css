@@ -886,3 +886,13 @@ body.col-resizing {
   > .ant-collapse-content-box {
   padding-block: 4px 0;
 }
+
+/* 待上传附件里的图片小预览（粘贴截图后确认贴的是哪张） */
+.attachment-thumb {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--sider-border);
+  vertical-align: middle;
+}

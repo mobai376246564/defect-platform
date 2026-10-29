@@ -9,7 +9,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { App, Col, Collapse, Form, Input, Modal, Row, Select } from 'antd';
 import { useState, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import type { DefectRow, ProjectDetail } from '../../api/types';
 import { uploadAttachments, type PendingFile } from '../../api/upload';
@@ -50,6 +50,7 @@ export function DefectCreateModal({
 }) {
   const [form] = Form.useForm<FormValues>();
   const { message, notification } = App.useApp();
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const [files, setFiles] = useState<PendingFile[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -57,10 +58,19 @@ export function DefectCreateModal({
 
   const done = (created: DefectRow, warning?: string) => {
     void qc.invalidateQueries({ queryKey: ['defects', projectKey] });
+    // 提示框渲染在路由之外，不能放 <Link>（会因拿不到路由上下文整页崩掉）；用普通链接 + 这里的 navigate 跳转
+    const href = `/p/${projectKey}/bugs/${created.code}`;
     const link = (
-      <Link to={`/p/${projectKey}/bugs/${created.code}`} onClick={() => notification.destroy()}>
+      <a
+        href={href}
+        onClick={(e) => {
+          e.preventDefault();
+          notification.destroy();
+          void navigate(href);
+        }}
+      >
         查看 {created.code}
-      </Link>
+      </a>
     );
     if (warning) notification.warning({ message: warning, description: link });
     else notification.success({ message: `已创建 ${created.code}`, description: link });
@@ -247,7 +257,8 @@ export function DefectCreateModal({
         )}
         {show('attachments') && (
           <Form.Item label="附件" style={{ marginBottom: 12 }}>
-            <AttachmentPicker value={files} onChange={setFiles} />
+            {/* 弹窗打开期间 Ctrl+V 可直接粘贴截图 */}
+            <AttachmentPicker value={files} onChange={setFiles} paste={open} />
           </Form.Item>
         )}
         {more.length > 0 && (
