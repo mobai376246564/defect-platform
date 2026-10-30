@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { POSITIONS } from '@defect/shared';
 import { z } from 'zod';
-import { AuthService, passwordSchema, usernameSchema } from '../auth/auth.service';
+import { AuthService, emailOfUsername, passwordSchema, usernameSchema } from '../auth/auth.service';
 import { CurrentUser, type AuthUser } from '../common/auth-user';
 import { ZodPipe } from '../common/zod.pipe';
 import { PrismaService } from '../prisma/prisma.service';
@@ -78,7 +78,8 @@ export class UsersController {
     @Body(new ZodPipe(createUserSchema)) body: z.infer<typeof createUserSchema>,
   ) {
     this.requireAdmin(user);
-    const keys = [body.username, ...(body.email ? [body.email] : [])];
+    const email = body.email ?? emailOfUsername(body.username);
+    const keys = [body.username, ...(email ? [email] : [])];
     const exists = await this.prisma.user.findFirst({
       where: { OR: [{ username: { in: keys } }, { email: { in: keys } }] },
     });
@@ -86,7 +87,7 @@ export class UsersController {
     return this.prisma.user.create({
       data: {
         username: body.username,
-        email: body.email ?? null,
+        email,
         name: body.name,
         position: body.position,
         isSystemAdmin: body.isSystemAdmin,

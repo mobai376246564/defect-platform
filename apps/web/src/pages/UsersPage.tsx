@@ -290,16 +290,20 @@ export function UsersPage() {
           <Form.Item
             name="username"
             label="账号"
-            extra="3–32 位字母、数字、下划线、点或横线"
+            extra="建议用公司邮箱；账号是邮箱时同时记为邮箱"
             rules={[
               { required: true, message: '请输入账号' },
-              { pattern: USERNAME_PATTERN, message: '账号格式不正确' },
+              { pattern: USERNAME_PATTERN, message: '账号为 3–64 个字符，不能包含空格' },
             ]}
           >
-            <Input autoComplete="off" />
+            <Input autoComplete="off" placeholder="公司邮箱，如 zhangsan@pointone.tech" />
           </Form.Item>
-          <Form.Item name="name" label="姓名" rules={[{ required: true, max: 50 }]}>
-            <Input />
+          <Form.Item
+            name="name"
+            label="姓名"
+            rules={[{ required: true, whitespace: true, message: '请填写真实姓名', max: 50 }]}
+          >
+            <Input placeholder="真实姓名，如 张三" />
           </Form.Item>
           <Form.Item name="position" label="职位" rules={[{ required: true }]}>
             <Select options={positionOptions} />

@@ -25,8 +25,13 @@ export const passwordSchema = z.string().min(8, '密码至少 8 位').max(72, '�
 export const usernameSchema = z
   .string()
   .trim()
-  .regex(USERNAME_PATTERN, '账号为 3–32 位字母、数字、下划线、点或横线')
+  .regex(USERNAME_PATTERN, '账号为 3–64 个字符，不能包含空格')
   .transform((v) => v.toLowerCase());
+
+/** 账号本身是邮箱时同时记为邮箱（登录可用，也便于以后发邮件） */
+export function emailOfUsername(username: string): string | null {
+  return z.email().safeParse(username).success ? username : null;
+}
 
 /** 未通过审核、被拒绝或已禁用的账号不能登录，也不能使用已有凭证。 */
 function canSignIn(user: { status: string; disabledAt: Date | null }): boolean {
@@ -139,7 +144,7 @@ export class AuthService {
     username: string;
     password: string;
     position: Position;
-    name?: string;
+    name: string;
   }): Promise<{ id: string; username: string; status: string }> {
     const exists = await this.prisma.user.findFirst({
       where: { OR: [{ username: input.username }, { email: input.username }] },
@@ -148,7 +153,8 @@ export class AuthService {
     const user = await this.prisma.user.create({
       data: {
         username: input.username,
-        name: input.name || input.username,
+        email: emailOfUsername(input.username),
+        name: input.name,
         position: input.position,
         status: 'pending',
         passwordHash: await AuthService.hashPassword(input.password),

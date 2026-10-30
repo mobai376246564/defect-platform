@@ -9,7 +9,7 @@ import { AuthShell } from '../components/AuthShell';
 interface RegisterValues {
   position: Position;
   username: string;
-  name?: string;
+  name: string;
   password: string;
   confirm: string;
 }
@@ -34,7 +34,7 @@ export function RegisterPage() {
         body: {
           position: v.position,
           username: v.username.trim(),
-          name: v.name?.trim() || undefined,
+          name: v.name.trim(),
           password: v.password,
         },
       });
@@ -73,16 +73,24 @@ export function RegisterPage() {
             <Form.Item
               name="username"
               label="账号"
-              extra="3–32 位字母、数字、下划线、点或横线，登录时使用"
+              extra="登录时使用，建议用公司邮箱"
               rules={[
                 { required: true, message: '请输入账号' },
-                { pattern: USERNAME_PATTERN, message: '账号格式不正确' },
+                { pattern: USERNAME_PATTERN, message: '账号为 3–64 个字符，不能包含空格' },
               ]}
             >
-              <Input autoComplete="username" />
+              <Input autoComplete="username" placeholder="公司邮箱，如 zhangsan@pointone.tech" />
             </Form.Item>
-            <Form.Item name="name" label="姓名" extra="选填，默认与账号相同" rules={[{ max: 50 }]}>
-              <Input />
+            <Form.Item
+              name="name"
+              label="姓名"
+              extra="请填写真实姓名，指派处理人、APP 提单都按姓名找人"
+              rules={[
+                { required: true, whitespace: true, message: '请填写真实姓名' },
+                { max: 50, message: '姓名最多 50 字' },
+              ]}
+            >
+              <Input autoComplete="name" placeholder="真实姓名，如 张三" />
             </Form.Item>
             <Form.Item
               name="password"

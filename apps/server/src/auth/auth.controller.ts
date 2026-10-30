@@ -31,7 +31,7 @@ const registerSchema = z.object({
   username: usernameSchema,
   password: passwordSchema,
   position: z.enum(POSITIONS),
-  name: z.string().trim().max(50).optional(),
+  name: z.string({ error: '请填写姓名' }).trim().min(1, '请填写姓名').max(50),
 });
 
 const changePasswordSchema = z.object({

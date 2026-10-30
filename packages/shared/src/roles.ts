@@ -86,5 +86,5 @@ export const USER_STATUS = {
 } as const;
 export type UserStatus = keyof typeof USER_STATUS;
 
-/** 登录账号规则：3–32 位字母、数字、下划线、点或横线，不区分大小写。 */
-export const USERNAME_PATTERN = /^[a-zA-Z0-9_.-]{3,32}$/;
+/** 登录账号规则：3–64 个字符、不含空格，不区分大小写；建议用公司邮箱。 */
+export const USERNAME_PATTERN = /^\S{3,64}$/;

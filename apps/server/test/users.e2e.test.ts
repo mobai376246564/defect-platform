@@ -85,13 +85,23 @@ describe('admin users (e2e)', () => {
     await register({ username, password: 'regPass123', position: 'boss' }).expect(400);
     await register({ username, password: 'short', position: 'tester' }).expect(400);
     await register({ username: 'ab', password: 'regPass123', position: 'tester' }).expect(400);
-
-    const res = await register({ username, password: 'regPass123', position: 'tester' }).expect(
-      201,
+    await register({ username: 'a b c', password: 'regPass123', position: 'tester' }).expect(400);
+    // 姓名必填
+    await register({ username, password: 'regPass123', position: 'tester' }).expect(400);
+    await register({ username, name: '  ', password: 'regPass123', position: 'tester' }).expect(
+      400,
     );
+
+    const res = await register({
+      username,
+      name: '注册同学',
+      password: 'regPass123',
+      position: 'tester',
+    }).expect(201);
     expect(res.body).toMatchObject({ username, status: 'pending' });
     await register({
       username: username.toUpperCase(),
+      name: '重复',
       password: 'x12345678',
       position: 'art',
     }).expect(409);
@@ -108,7 +118,7 @@ describe('admin users (e2e)', () => {
     expect(count.body.count).toBeGreaterThanOrEqual(1);
     const list = await ctx.http.get('/api/v1/admin/users').set(auth(admin.token)).expect(200);
     const row = (list.body as Array<Record<string, unknown>>).find((r) => r.id === res.body.id);
-    expect(row).toMatchObject({ name: username, position: 'tester', status: 'pending' });
+    expect(row).toMatchObject({ name: '注册同学', position: 'tester', status: 'pending' });
 
     const someone = await createUser(ctx);
     await ctx.http
@@ -130,6 +140,18 @@ describe('admin users (e2e)', () => {
       .set(auth(admin.token))
       .send({})
       .expect(400);
+  });
+
+  it('accepts a company email as the account and records it as the email', async () => {
+    const account = `Zhang.San+${Date.now()}@PointOne.tech`;
+    const res = await ctx.http
+      .post('/api/v1/auth/register')
+      .send({ username: account, name: '张三', password: 'regPass123', position: 'developer' })
+      .expect(201);
+    expect(res.body.username).toBe(account.toLowerCase());
+    const list = await ctx.http.get('/api/v1/admin/users').set(auth(admin.token)).expect(200);
+    const row = (list.body as Array<Record<string, unknown>>).find((r) => r.id === res.body.id);
+    expect(row).toMatchObject({ email: account.toLowerCase(), name: '张三' });
   });
 
   it('rejects a registration so it cannot log in', async () => {
@@ -193,7 +215,12 @@ describe('admin users (e2e)', () => {
     const pendingName = `pend${Date.now()}`;
     await ctx.http
       .post('/api/v1/auth/register')
-      .send({ username: pendingName, password: 'regPass123', position: 'developer' })
+      .send({
+        username: pendingName,
+        name: '待审核',
+        password: 'regPass123',
+        position: 'developer',
+      })
       .expect(201);
     await ctx.http
       .post(`/api/v1/projects/${key}/members`)
