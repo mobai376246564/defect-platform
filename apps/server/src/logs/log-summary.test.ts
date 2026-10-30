@@ -36,7 +36,7 @@ describe('summarizeLogs', () => {
     lines.splice(30, 0, '10-16 10:21:30.500 E/Pay: signature mismatch');
     const summary = summarizeLogs([{ name: 'net.log', text: lines.join('\n') }]);
     expect(summary).toContain('51 处异常相关日志（2 种）');
-    expect(summary).toContain('以下错误共出现 50 次，首次第 1 行，最近第 51 行');
+    expect(summary).toContain('以下共出现 50 次，首次第 1 行，最近第 51 行');
     expect(summary).toContain('timeout after 3049ms');
     expect(summary).not.toContain('timeout after 3000ms');
     expect(summary).toContain('E/Pay: signature mismatch');
@@ -83,12 +83,34 @@ describe('summarizeLogs', () => {
     expect(errors).not.toContain('not an error line');
     expect(errors).toContain('Object reference not set');
     // 只有图片地址不同的错误合并为一种
-    expect(summary).toContain('以下错误共出现 2 次');
+    expect(summary).toContain('以下共出现 2 次');
     // 错误后面没有时间前缀的续行（C# 堆栈）归入同一段
     expect(errors).toContain('at Game.UI.ShopPanel.Refresh ()');
     expect(errors).toContain('at Game.UI.ShopPanel.OnEnable ()');
     // 超长行截断显示
     expect(summary).toContain('…（共 2015 字）');
+  });
+
+  it('says so when there are no errors and lists warnings instead', () => {
+    const text = [
+      '17:13:49.973|L|[TomoLauncher] 启动',
+      '17:13:52.342|W|[xasset] effect_618_01 already exist',
+      '17:13:52.405|W|[xasset] <Error> Initialize with: Success .',
+      '17:14:01.781|W|Cannot add menu item 3',
+      '17:14:02.781|W|Cannot add menu item 4',
+      '17:14:06.775|L|[BoxService] connection Connecting -> Offline',
+    ].join('\n');
+    const summary = summarizeLogs([{ name: 'box.log', text }]);
+    expect(summary).toContain('box.log：未发现错误级别的日志；4 处警告（3 种）');
+    expect(summary).toContain('以下共出现 2 次，首次第 4 行，最近第 5 行');
+    expect(summary).toContain('5: 17:14:02.781|W|Cannot add menu item 4');
+    // 警告不在末尾片段里重复
+    expect(summary).toContain('末尾 2 行（不含上面已列出的）');
+    expect(summary.match(/already exist/g)).toHaveLength(1);
+
+    const plain = summarizeLogs([{ name: 'plain.log', text: 'I/App: start\nI/App: stop' }]);
+    expect(plain).toContain('plain.log：未发现错误或警告级别的日志');
+    expect(plain).toContain('末尾 2 行 ==');
   });
 
   it('truncates to the requested size, keeping the end', () => {

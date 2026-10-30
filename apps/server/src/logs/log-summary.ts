@@ -20,6 +20,9 @@ const ERROR_LINE = new RegExp(
 const LEVELED_LINE =
   /^\s*\[?(?:\d{4}[-/]\d{2}[-/]\d{2}[ T])?\d{2}:\d{2}:\d{2}(?:[.,]\d{1,6})?\]?\s*[|[]\s*([A-Za-z]{1,9})\s*[|\]]/;
 const ERROR_LEVEL = /^(?:E|F|A|X|ERR|ERROR|FATAL|ASSERT|EXCEPTION|CRIT|CRITICAL)$/i;
+/** 警告：带级别日志看 W/WARN 级别；其余看 WARN 关键字与 logcat 的 W 级别 */
+const WARN_LEVEL = /^(?:W|WARN|WARNING)$/i;
+const WARN_LINE = /\bWARN(?:ING)?\b|\bW\/[\w.$-]+|\sW\s+[\w.$-]+\s*:|^\s*W\s/;
 /** 堆栈帧：Java / Kotlin、iOS，以及 C# / Unity（“at A.B () [0x0] in <x>:0”、“A.B:C (object)”、“A.B () (at Assets/x.cs:12)”） */
 const STACK_FRAME =
   /^\s+at\s+[\w$.<>]+\(.*\)|^\s*\d+\s+\S+\s+0x[0-9a-f]+|^\s*(?:at\s+)?[\w.`<>+]+[.:][\w`<>]+\s*\([^)]*\)\s*(?:\[0x[0-9a-f]+\]|\(at\s|in\s|$)/i;
@@ -27,6 +30,8 @@ const EXCEPTION_HEAD =
   /(?:^|\s)((?:[a-zA-Z_$][\w$]*\.)+[A-Z][\w$]*(?:Exception|Error))\b|((?:NS|Swift)\w*(?:Exception|Error))/;
 /** 每个文件最多列出的不同错误段数 */
 const MAX_BLOCKS = 40;
+/** 没有错误时最多列出的不同警告数 */
+const MAX_WARNINGS = 15;
 const TAIL_LINES = 20;
 /** 带级别的日志里，错误行后最多带上的续行（JSON 包体、堆栈） */
 const MAX_CONTINUATION = 12;
@@ -65,11 +70,39 @@ interface ErrorBlock {
   count: number;
 }
 
+/** 记下一段日志：与已有的同一种（normalize 后相同）合并计数，保留最近一次 */
+function remember(blocks: Map<string, ErrorBlock>, key: string, lines: string[], at: number) {
+  const seen = blocks.get(key);
+  if (seen) {
+    seen.count++;
+    seen.last = at;
+    seen.lines = lines;
+  } else {
+    blocks.set(key, { lines, first: at, last: at, count: 1 });
+  }
+}
+
+/** “N 处xx（M 种）”标题 + 各段内容；种类太多时保留最后的（离出问题最近） */
+function render(head: string, all: ErrorBlock[], max: number, noun: string): string[] {
+  const total = all.reduce((n, b) => n + b.count, 0);
+  const shown = all.slice(-max);
+  const out = [`${head}${total} 处${noun}${all.length < total ? `（${all.length} 种）` : ''} ==`];
+  if (shown.length < all.length) out.push(`…（较早的 ${all.length - shown.length} 种已省略）`);
+  for (const b of shown) {
+    if (b.count > 1) {
+      out.push(`（以下共出现 ${b.count} 次，首次第 ${b.first} 行，最近第 ${b.last} 行）`);
+    }
+    out.push(...b.lines);
+  }
+  return out;
+}
+
 /**
  * 规则提取，不调用大模型（方案 5.2 第 6 步）：
  * 1. 找出错误行，连同紧随其后的异常头、Caused by 与堆栈帧组成一段；
  * 2. 只有时间、行号等数字不同的重复错误合并为一段，标出出现次数，展示最近一次；
- * 3. 附上日志末尾片段（跳过已经列出的行），便于看到崩溃前后的上下文。
+ * 3. 没有错误时写明，并改为列出警告（同样去重），免得只看到末尾片段以为没提取到；
+ * 4. 附上日志末尾片段（跳过已经列出的行），便于看到崩溃前后的上下文。
  * 摘要控制在约 8 KB 内，完整日志由 Claude Code 通过 MCP grep_log / read_log 按需读取。
  */
 export function summarizeLogs(files: LogFile[], maxChars = 8000): string {
@@ -113,34 +146,34 @@ export function summarizeLogs(files: LogFile[], maxChars = 8000): string {
         j++;
       }
       for (let k = i; k < j; k++) picked.add(k);
-      const key = normalize(block.join('\n'));
-      const seen = blocks.get(key);
-      if (seen) {
-        seen.count++;
-        seen.last = i + 1;
-        seen.lines = numbered;
-      } else {
-        blocks.set(key, { lines: numbered, first: i + 1, last: i + 1, count: 1 });
-      }
+      remember(blocks, normalize(block.join('\n')), numbered, i + 1);
       i = j - 1;
     }
 
     if (blocks.size > 0) {
-      const all = [...blocks.values()];
-      // 错误段太多时保留最后的（离崩溃最近）
-      const shown = all.slice(-MAX_BLOCKS);
-      const total = all.reduce((n, b) => n + b.count, 0);
+      parts.push(...render(`== ${f.name}：`, [...blocks.values()], MAX_BLOCKS, '异常相关日志'));
+    } else {
+      const isWarning = (line: string): boolean => {
+        if (!leveled) return WARN_LINE.test(line);
+        const m = LEVELED_LINE.exec(line);
+        return !!m && WARN_LEVEL.test(m[1] ?? '');
+      };
+      const warnings = new Map<string, ErrorBlock>();
+      lines.forEach((line, i) => {
+        if (!isWarning(line)) return;
+        picked.add(i);
+        remember(warnings, normalize(line), [`${i + 1}: ${clip(line)}`], i + 1);
+      });
       parts.push(
-        `== ${f.name}：${total} 处异常相关日志${all.length < total ? `（${all.length} 种）` : ''} ==`,
+        ...(warnings.size > 0
+          ? render(
+              `== ${f.name}：未发现错误级别的日志；`,
+              [...warnings.values()],
+              MAX_WARNINGS,
+              '警告',
+            )
+          : [`== ${f.name}：未发现错误或警告级别的日志 ==`]),
       );
-      if (shown.length < all.length)
-        parts.push(`…（较早的 ${all.length - shown.length} 种已省略）`);
-      for (const b of shown) {
-        if (b.count > 1) {
-          parts.push(`（以下错误共出现 ${b.count} 次，首次第 ${b.first} 行，最近第 ${b.last} 行）`);
-        }
-        parts.push(...b.lines);
-      }
     }
 
     // 末尾片段：只列出上面没出现过的行；整个文件都已列出时不再重复
