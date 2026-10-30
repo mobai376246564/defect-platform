@@ -13,6 +13,7 @@ import { DefectsService } from '../defects/defects.service';
 import type { Attachment, FeedbackReport, Prisma, Project } from '../generated/prisma/client';
 import { readLogArchive, type LogFile } from '../logs/log-archive';
 import { summarizeLogs } from '../logs/log-summary';
+import { projectOfApp } from './app-binding';
 import { MediaService } from '../media/media.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -96,17 +97,6 @@ export class IngestService {
     @Inject(OBJECT_STORAGE) private readonly storage: ObjectStorage,
   ) {}
 
-  /** 按 APP 标识找绑定的项目 */
-  private async projectOfApp(appId: string): Promise<Project> {
-    const project = await this.prisma.project.findFirst({ where: { appIds: { has: appId } } });
-    if (!project) {
-      throw new BadRequestException(
-        `APP 标识 ${appId} 还没有绑定到任何项目，请联系平台管理员在「项目设置 → APP 接入」中绑定`,
-      );
-    }
-    return project;
-  }
-
   async submit(input: AppDefectInput, files: UploadedFile[]): Promise<AppDefectResult> {
     const total = files.reduce((n, f) => n + f.size, 0);
     if (total > APP_TOTAL_MAX_BYTES) {
@@ -114,7 +104,7 @@ export class IngestService {
         `附件总大小超过 ${APP_TOTAL_MAX_BYTES / 1024 / 1024} MB，请压缩录屏或分开提交`,
       );
     }
-    const project = await this.projectOfApp(input.appId);
+    const project = await projectOfApp(this.prisma, input.appId);
     const reportId = input.reportId ?? randomUUID();
     const storagePrefix = appPrefix(input.appId, new Date(), reportId);
     const meta = {
@@ -122,7 +112,7 @@ export class IngestService {
       files: files.map((f) => ({ name: f.originalName, size: f.size })),
     } as Prisma.InputJsonValue;
 
-    const claim = await this.claim(reportId, input.appId, storagePrefix, meta);
+    const claim = await this.claim(reportId, input.appId, project.id, storagePrefix, meta);
     if (claim.done) return this.result(reportId, project.key, claim.done, false);
 
     try {
@@ -193,6 +183,7 @@ export class IngestService {
   private async claim(
     reportId: string,
     appId: string,
+    projectId: string,
     storagePrefix: string,
     meta: Prisma.InputJsonValue,
   ): Promise<{ done?: string }> {
@@ -200,7 +191,7 @@ export class IngestService {
     if (!previous) {
       try {
         await this.prisma.feedbackReport.create({
-          data: { reportId, appId, storagePrefix, meta },
+          data: { reportId, appId, projectId, storagePrefix, meta },
         });
         return {};
       } catch (err) {
@@ -222,6 +213,7 @@ export class IngestService {
         status: 'pending',
         error: null,
         defectId: null,
+        projectId,
         storagePrefix,
         meta,
         receivedAt: new Date(),

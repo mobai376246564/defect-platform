@@ -332,8 +332,8 @@ export function SettingsPage() {
 }
 
 /**
- * APP 接入：绑定 APP 标识（APP 提单时传的 appId），并给出提单接口地址。
- * 一个标识只能绑定一个项目，服务端校验，冲突时保存失败并提示已绑定到哪个项目。
+ * APP 接入：绑定 APP 标识（完整包名或关键字，APP 提单时传的 appId 包含其中一项即匹配），并给出提单接口地址。
+ * 同一个标识只能绑定一个项目，服务端校验，冲突时保存失败并提示已绑定到哪个项目。
  */
 function AppIntegrationCard({ project, editable }: { project: ProjectDetail; editable: boolean }) {
   const { message } = App.useApp();
@@ -369,11 +369,12 @@ function AppIntegrationCard({ project, editable }: { project: ProjectDetail; edi
             style={{ width: '100%', marginTop: 6 }}
             value={project.appIds}
             onChange={(v: string[]) => save.mutate(v)}
-            placeholder="输入 APP 标识（如包名 com.bud.shop）后回车"
+            placeholder="输入完整包名或关键字（如 BudBox）后回车"
           />
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            一般填 APP 的包名或 Bundle ID，可以绑定多个（如 iOS
-            和安卓各一个）；一个标识只能绑定一个项目
+            APP 提单时传的 appId 包含其中一项（不区分大小写）就建到本项目：填关键字（至少 3
+            个字符）可一次匹配各渠道包名，如 BudBox 匹配 com.pointone.androidBudBox 与
+            com.pointone.iosBudBox；也可填完整包名。多个项目都匹配时，匹配到的那项更长的优先
           </Typography.Text>
         </div>
         <div>
@@ -385,7 +386,8 @@ function AppIntegrationCard({ project, editable }: { project: ProjectDetail; edi
             </Button>
           </Space.Compact>
           <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: '6px 0 0' }}>
-            multipart/form-data，一次请求传完：appId（上面绑定的标识，必填）、description（缺陷描述，必填）、
+            multipart/form-data，一次请求传完：appId（APP
+            包名，需能匹配上面的绑定，必填）、description（缺陷描述，必填）、
             reporterName（提单人姓名）、ownerNames（处理人姓名，可多个，都按姓名自动关联平台用户）、
             files（截图、录屏、日志，可多个）。 成功返回缺陷编号；完整字段与示例见仓库文档
             docs/app-integration.md。

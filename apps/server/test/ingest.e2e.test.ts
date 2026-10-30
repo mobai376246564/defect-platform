@@ -224,6 +224,54 @@ describe('APP defect submission (e2e)', () => {
       .send({ key: projectKey('ING'), name: '另一个项目', appIds: [appId] })
       .expect(409);
     expect(conflict.body.message).toContain('已绑定到项目「接入测试」');
+    // 不区分大小写；太短的关键字不允许
+    await ctx.http
+      .post('/api/v1/projects')
+      .set(auth(adminToken))
+      .send({ key: projectKey('ING'), name: '大写', appIds: [appId.toUpperCase()] })
+      .expect(409);
+    await ctx.http
+      .post('/api/v1/projects')
+      .set(auth(adminToken))
+      .send({ key: projectKey('ING'), name: '太短', appIds: ['ab'] })
+      .expect(400);
+  });
+
+  it('matches bound keywords case-insensitively, preferring the longest match', async () => {
+    const createProject = async (name: string, appIds: string[]) => {
+      const k = projectKey('ING');
+      await ctx.http
+        .post('/api/v1/projects')
+        .set(auth(adminToken))
+        .send({ key: k, name, appIds })
+        .expect(201);
+      return k;
+    };
+    const word = `Kw${key}`;
+    // 关键字匹配各渠道包名；单独绑定的完整包名更长，优先
+    const brand = await createProject('关键字', [word]);
+    const ios = await createProject('单独渠道', [`com.pointone.ios${word}`.toUpperCase()]);
+    const android = await submit({
+      appId: `com.pointone.android${word.toLowerCase()}`,
+      description: '安卓渠道',
+    }).expect(201);
+    expect(android.body.url).toBe(`/p/${brand}/bugs/${android.body.code}`);
+    const iosRes = await submit({ appId: `com.pointone.ios${word}`, description: 'iOS' }).expect(
+      201,
+    );
+    expect(iosRes.body.url).toBe(`/p/${ios}/bugs/${iosRes.body.code}`);
+    const report = await prisma.feedbackReport.findUniqueOrThrow({
+      where: { reportId: android.body.reportId },
+    });
+    expect(report.projectId).toBe(
+      (await prisma.project.findUniqueOrThrow({ where: { key: brand } })).id,
+    );
+
+    // 两个项目匹配到的关键字一样长：无法判断，拒绝
+    await createProject('甲', [`Aa${key}`]);
+    await createProject('乙', [`Bb${key}`]);
+    const both = await submit({ appId: `x.aa${key}.bb${key}`, description: '都匹配' }).expect(400);
+    expect(both.body.message).toContain('同时匹配项目「甲」「乙」');
   });
 
   it('assigns owners by name, including users outside the project', async () => {

@@ -435,29 +435,28 @@ export class ReportsService {
   }
 
   /**
-   * APP 提单：项目绑定的各 APP 提交量、建单成功与失败、各 APP 的分布，以及最近的失败原因。
+   * APP 提单：匹配到本项目的提交量、建单成功与失败、按实际 APP 标识（各渠道包名）的分布，以及最近的失败原因。
    * pending 是正在处理的提交（超过 1 小时没结束的由每日清理记为失败）。
    */
   async feedback(ctx: ProjectContext, f: ReportFilter) {
     const s = await this.scope(ctx, f);
-    const appIds = ctx.project.appIds;
-    const reports = appIds.length
-      ? await this.prisma.feedbackReport.findMany({
-          where: { appId: { in: appIds }, receivedAt: { gte: s.start, lt: s.end } },
-          select: { reportId: true, appId: true, status: true, error: true, receivedAt: true },
-          orderBy: { receivedAt: 'desc' },
-        })
-      : [];
+    const reports = await this.prisma.feedbackReport.findMany({
+      where: { projectId: ctx.project.id, receivedAt: { gte: s.start, lt: s.end } },
+      select: { reportId: true, appId: true, status: true, error: true, receivedAt: true },
+      orderBy: { receivedAt: 'desc' },
+    });
     type Tally = { total: number; created: number; failed: number; pending: number };
     const empty = (): Tally => ({ total: 0, created: 0, failed: 0, pending: 0 });
     const outcome = (status: string): keyof Omit<Tally, 'total'> =>
       status === 'created' ? 'created' : status === 'failed' ? 'failed' : 'pending';
     const points = new Map<string, Tally>();
     for (const day of dateRange(s.from, s.to)) points.set(bucketOf(day, s.granularity), empty());
-    const byApp = new Map<string, Tally>(appIds.map((a) => [a, empty()]));
+    // 绑定的是关键字，列出实际提交过的 APP 标识
+    const byApp = new Map<string, Tally>();
     const totals = empty();
     for (const r of reports) {
       const k = outcome(r.status);
+      if (!byApp.has(r.appId)) byApp.set(r.appId, empty());
       for (const t of [
         points.get(bucketOf(reportDate(r.receivedAt), s.granularity)),
         byApp.get(r.appId),

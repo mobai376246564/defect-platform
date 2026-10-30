@@ -217,9 +217,9 @@ function ProjectFormModal({
         <Form.Item
           name="appIds"
           label="绑定的 APP 标识"
-          extra="APP 提单时传的 appId（一般是包名），提交的缺陷自动建到本项目；输入后回车，可填多个"
+          extra="填完整包名或关键字（如 BudBox，至少 3 个字符）：APP 提单时传的 appId 包含其中一项（不区分大小写）就建到本项目，多个渠道包填一个共同关键字即可；输入后回车，可填多个"
         >
-          <Select mode="tags" placeholder="com.bud.shop" open={false} />
+          <Select mode="tags" placeholder="如 BudBox 或 com.bud.shop" open={false} />
         </Form.Item>
       </Form>
     </Modal>

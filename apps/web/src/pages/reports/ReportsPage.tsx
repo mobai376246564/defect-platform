@@ -1153,7 +1153,11 @@ function FeedbackTab({ project, query }: TabProps) {
               rowKey="appId"
               pagination={false}
               dataSource={d.byApp}
-              locale={{ emptyText: '项目还没有绑定 APP 标识' }}
+              locale={{
+                emptyText: project.appIds.length
+                  ? '时间段内没有 APP 提单'
+                  : '项目还没有绑定 APP 标识',
+              }}
               columns={[
                 { title: 'APP 标识', dataIndex: 'appId' },
                 { title: '提单', dataIndex: 'total', align: 'right' },

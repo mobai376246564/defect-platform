@@ -19,6 +19,7 @@ import { API_PREFIX } from '../bootstrap';
 import type { AuthUser } from '../common/auth-user';
 import { APP_ENV, type AppEnv } from '../config/env';
 import type { Prisma, ProjectRole } from '../generated/prisma/client';
+import { APP_KEYWORD_MIN_LENGTH } from '../ingest/app-binding';
 import { PrismaService } from '../prisma/prisma.service';
 import { OBJECT_STORAGE, type ObjectStorage } from '../storage/storage.types';
 import { ProjectAccessService } from './project-access.service';
@@ -101,7 +102,7 @@ export class ProjectsService {
         select: { storageKey: true },
       }),
       this.prisma.feedbackReport.findMany({
-        where: { appId: { in: project.appIds }, defectId: null },
+        where: { projectId: project.id, defectId: null },
         select: { storagePrefix: true },
       }),
     ]);
@@ -113,9 +114,9 @@ export class ProjectsService {
       await tx.notification.deleteMany({ where: { projectId: project.id } });
       await tx.defectDailySnapshot.deleteMany({ where: { projectId: project.id } });
       await tx.mcpAudit.deleteMany({ where: { projectId: project.id } });
-      // 本项目绑定的 APP 的提交记录，以及建到本项目缺陷上的（APP 标识后来改绑过的）
+      // 匹配到本项目的 APP 提交记录，以及建到本项目缺陷上的
       await tx.feedbackReport.deleteMany({
-        where: { OR: [{ appId: { in: project.appIds } }, { defectId: { in: defectIds } }] },
+        where: { OR: [{ projectId: project.id }, { defectId: { in: defectIds } }] },
       });
       await tx.project.delete({ where: { id: project.id } });
     });
@@ -236,21 +237,35 @@ export class ProjectsService {
   }
 
   /**
-   * APP 标识（APP 提单时传的 appId）去重去空格；一个标识只能绑定一个项目，
-   * 否则平台不知道该把提单建到哪个项目。
+   * 绑定的 APP 标识（完整包名或关键字，匹配规则见 matchAppBinding）去空格、不区分大小写去重；
+   * 同一个标识只能绑定一个项目，否则平台不知道该把提单建到哪个项目。
    */
   private async checkAppIds(appIds: string[], projectId: string | null): Promise<string[]> {
-    const ids = [...new Set(appIds.map((a) => a.trim()).filter(Boolean))];
+    const ids: string[] = [];
+    for (const a of appIds.map((x) => x.trim()).filter(Boolean)) {
+      if (a.length < APP_KEYWORD_MIN_LENGTH) {
+        throw new BadRequestException(
+          `APP 标识「${a}」太短，至少 ${APP_KEYWORD_MIN_LENGTH} 个字符，避免误匹配其他 APP`,
+        );
+      }
+      if (!ids.some((x) => x.toLowerCase() === a.toLowerCase())) ids.push(a);
+    }
     if (ids.length === 0) return ids;
-    const taken = await this.prisma.project.findFirst({
-      where: { appIds: { hasSome: ids }, ...(projectId ? { id: { not: projectId } } : {}) },
+    const others = await this.prisma.project.findMany({
+      where: {
+        NOT: { appIds: { isEmpty: true } },
+        ...(projectId ? { id: { not: projectId } } : {}),
+      },
       select: { name: true, appIds: true },
     });
-    if (taken) {
-      const dup = ids.filter((a) => taken.appIds.includes(a)).join('、');
-      throw new ConflictException(
-        `APP 标识 ${dup} 已绑定到项目「${taken.name}」，一个标识只能绑定一个项目`,
-      );
+    for (const other of others) {
+      const taken = new Set(other.appIds.map((x) => x.toLowerCase()));
+      const dup = ids.filter((a) => taken.has(a.toLowerCase()));
+      if (dup.length) {
+        throw new ConflictException(
+          `APP 标识 ${dup.join('、')} 已绑定到项目「${other.name}」，一个标识只能绑定一个项目`,
+        );
+      }
     }
     return ids;
   }

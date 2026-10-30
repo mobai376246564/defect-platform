@@ -63,7 +63,7 @@ model Project {
   key         String   @unique
   name        String
   description String   @default("")
-  /// 绑定的 APP 包名，APP 反馈按包名映射到项目
+  /// 绑定的 APP 标识：完整包名或关键字，APP 提单的 appId 包含其中一项（不区分大小写）即建到本项目
   appIds      String[]
   repoUrl     String?
   /// Git 平台 Webhook 密钥（GitHub 用于 HMAC 签名，GitLab 作为 X-Gitlab-Token 比对），需明文保存
@@ -286,6 +286,8 @@ model DefectLink {
 model FeedbackReport {
   reportId    String    @id @db.Uuid
   appId       String
+  /// 按 APP 标识匹配到的项目（绑定是关键字匹配，不能再从 appId 反推）
+  projectId   String?   @db.Uuid
   /// 附件在对象存储里的目录；没建成单的提交文件被清理后置为空串
   storagePrefix String
   /// APP 提交的字段与文件清单（不含文件内容）
@@ -298,7 +300,7 @@ model FeedbackReport {
   processedAt DateTime?
 
   @@index([status, receivedAt])
-  @@index([appId, receivedAt])
+  @@index([projectId, receivedAt])
 }
 
 /// 通用后台任务队列（录屏抽帧、每日快照、每日清理），用 SELECT ... FOR UPDATE SKIP LOCKED 取任务

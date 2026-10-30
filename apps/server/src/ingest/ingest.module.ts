@@ -4,6 +4,7 @@ import type { MulterOptions } from '@nestjs/platform-express/multer/interfaces/m
 import { isAllowedAttachment } from '@defect/shared';
 import { DefectsModule } from '../defects/defects.module';
 import { PrismaService } from '../prisma/prisma.service';
+import { projectOfApp } from './app-binding';
 import { IngestController } from './ingest.controller';
 import { APP_FILE_MAX_BYTES, APP_MAX_FILES, IngestService } from './ingest.service';
 import { APP_UPLOAD_DIR } from './upload-dir';
@@ -32,18 +33,8 @@ function uploadOptions(prisma: PrismaService): MulterOptions {
         cb(null, true);
         return;
       }
-      prisma.project
-        .count({ where: { appIds: { has: appId.trim() } } })
-        .then((n) =>
-          n > 0
-            ? cb(null, true)
-            : cb(
-                new BadRequestException(
-                  `APP 标识 ${appId.trim()} 还没有绑定到任何项目，请联系平台管理员在「项目设置 → APP 接入」中绑定`,
-                ),
-                false,
-              ),
-        )
+      projectOfApp(prisma, appId.trim())
+        .then(() => cb(null, true))
         .catch((err: Error) => cb(err, false));
     },
     // 文件名按 UTF-8 解析，中文文件名不乱码

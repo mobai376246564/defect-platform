@@ -187,6 +187,7 @@ describe('reports (e2e)', () => {
         data: {
           reportId: crypto.randomUUID(),
           appId,
+          projectId,
           storagePrefix: 'x/',
           status: status!,
           error: status === 'failed' ? '附件总大小超过 500 MB' : null,
