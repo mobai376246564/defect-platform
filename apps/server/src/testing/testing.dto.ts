@@ -1,150 +1,153 @@
 import {
-  TEST_CASE_MODE,
-  TEST_CASE_STATUS,
+  inferTestCaseMode,
   TEST_PRIORITIES,
-  TEST_RESULT_STATUS,
+  TEST_RESULT,
+  testModeFromLabel,
+  testResultFromLabel,
   type TestCaseMode,
+  type TestResult,
 } from '@defect/shared';
 import { z } from 'zod';
 
-const keys = <T extends Record<string, string>>(map: T) =>
-  Object.keys(map) as [keyof T & string, ...(keyof T & string)[]];
+/** 长文本：Claude 可能传数组（每步一条），统一成多行文本；步骤数组自动加序号 */
+const text = (max: number, numbered = false) =>
+  z
+    .union([z.string(), z.array(z.string())])
+    .transform((v) =>
+      Array.isArray(v)
+        ? v
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .map((s, i) => (numbered && !/^\d+[.、]/.test(s) ? `${i + 1}. ${s}` : s))
+            .join('\n')
+        : v,
+    )
+    .pipe(z.string().max(max));
 
-const lines = z.array(z.string().trim().min(1).max(2000)).max(50);
+/** 执行方式：auto / manual 或 自动 / 人工 */
+const modeSchema = z.string().transform((v, ctx): TestCaseMode => {
+  const mode = testModeFromLabel(v);
+  if (mode) return mode;
+  ctx.addIssue({ code: 'custom', message: '执行方式只能是 自动 / 人工（auto / manual）' });
+  return z.NEVER;
+});
 
-/** 执行方式同时接受 auto / manual 和 Claude 生成稿里的「自动」「人工」 */
-const modeSchema = z
-  .string()
-  .trim()
-  .transform((v, ctx): TestCaseMode => {
-    if (v === 'auto' || v === '自动') return 'auto';
-    if (v === 'manual' || v === '人工') return 'manual';
-    ctx.addIssue({ code: 'custom', message: '执行方式只能是 auto / manual（自动 / 人工）' });
-    return z.NEVER;
-  });
+/** 测试结果：key 或中文标签 */
+const resultSchema = z.string().transform((v): TestResult => {
+  if ((Object.keys(TEST_RESULT) as string[]).includes(v)) return v as TestResult;
+  return testResultFromLabel(v);
+});
 
-/** 用例字段（不带默认值），新建与修改共用 */
 const caseFields = {
-  title: z.string().trim().min(1).max(200),
+  code: z.string().trim().min(1).max(30),
   module: z.string().trim().max(60),
+  subModule: z.string().trim().max(60),
+  testPoint: z.string().trim().max(60),
+  title: z.string().trim().min(1).max(200),
   priority: z.enum(TEST_PRIORITIES),
-  precondition: z.string().max(2000),
-  steps: lines.min(1, '至少一个步骤'),
-  expected: lines.min(1, '至少一条预期结果'),
-  testData: z.string().max(5000),
+  caseType: z.string().trim().max(10),
+  precondition: text(2000),
+  steps: text(5000, true),
+  expected: text(5000),
+  actualResult: text(5000),
+  result: resultSchema,
+  remark: text(2000),
   mode: modeSchema,
-  manualReason: z.string().max(500),
-  env: z.string().max(100),
-  source: z.string().max(500),
-  status: z.enum(keys(TEST_CASE_STATUS)),
 };
 
-/** 新建用例：除标题、步骤、预期外都有默认值 */
-export const testCaseSchema = z.object({
-  ...caseFields,
-  module: caseFields.module.default(''),
-  priority: caseFields.priority.default('P2'),
-  precondition: caseFields.precondition.default(''),
-  testData: caseFields.testData.default(''),
-  mode: caseFields.mode.default('auto'),
-  manualReason: caseFields.manualReason.default(''),
-  env: caseFields.env.default(''),
-  source: caseFields.source.default(''),
-  status: caseFields.status.default('draft'),
-});
-export type TestCaseInput = z.infer<typeof testCaseSchema>;
-
 /**
- * 修改用例：只改传了的字段。不能用 testCaseSchema.partial()——zod 4 的 partial 仍会套用默认值，
- * 没传的字段会被重置成默认值。
+ * 新建用例（Claude 生成或导入）。执行方式没写时按用例类型推断（硬件、服务端类为人工）。
  */
-export const testCaseUpdateSchema = z.object(caseFields).partial();
-export type TestCaseUpdate = z.infer<typeof testCaseUpdateSchema>;
-
-/**
- * 批量导入（Claude 生成稿或 JSON 文件）。兼容 POC 生成稿的字段名：pre / data。
- * 导入的用例一律为“待审核”，由测试审核后再入库。
- */
-export const importCaseSchema = z
+export const caseInputSchema = z
   .object({
-    title: z.string().trim().min(1).max(200),
-    module: z.string().trim().max(60).optional(),
-    priority: z.enum(TEST_PRIORITIES).optional(),
-    precondition: z.string().max(2000).optional(),
-    pre: z.string().max(2000).optional(),
-    steps: lines.min(1, '至少一个步骤'),
-    expected: lines.min(1, '至少一条预期结果'),
-    testData: z.string().max(5000).optional(),
-    data: z.string().max(5000).optional(),
-    mode: modeSchema.optional(),
-    manualReason: z.string().max(500).optional(),
-    env: z.string().max(100).optional(),
-    source: z.string().max(500).optional(),
+    ...caseFields,
+    module: caseFields.module.default(''),
+    subModule: caseFields.subModule.default(''),
+    testPoint: caseFields.testPoint.default(''),
+    priority: caseFields.priority.default('P2'),
+    caseType: caseFields.caseType.default('功能'),
+    precondition: caseFields.precondition.default(''),
+    steps: caseFields.steps.default(''),
+    expected: caseFields.expected.default(''),
+    actualResult: caseFields.actualResult.default(''),
+    result: caseFields.result.default('pending'),
+    remark: caseFields.remark.default(''),
+    mode: caseFields.mode.optional(),
   })
-  .transform((c) => ({
-    title: c.title,
-    module: c.module ?? '',
-    priority: c.priority ?? 'P2',
-    precondition: c.precondition ?? c.pre ?? '',
-    steps: c.steps,
-    expected: c.expected,
-    testData: c.testData ?? c.data ?? '',
-    mode: c.mode ?? 'auto',
-    manualReason: c.manualReason ?? '',
-    env: c.env ?? '',
-    source: c.source ?? '',
-  }));
-export type ImportCase = z.output<typeof importCaseSchema>;
+  .transform((c) => ({ ...c, mode: c.mode ?? inferTestCaseMode(c.caseType) }));
+export type CaseInput = z.output<typeof caseInputSchema>;
 
-export const importSchema = z.object({
-  /** 整批用例的来源（文档链接），单条用例没写来源时用它 */
-  source: z.string().max(500).optional(),
-  origin: z.enum(['ai', 'manual']).default('manual'),
-  cases: z.array(importCaseSchema).min(1).max(500),
+/**
+ * 修改用例：只改传了的字段（不能用 partial()——zod 4 的 partial 仍会套默认值，没传的字段会被重置）。
+ * defectCode 传空串解除关联。
+ */
+export const casePatchSchema = z
+  .object({
+    ...caseFields,
+    defectCode: z
+      .string()
+      .trim()
+      .regex(/^([A-Z][A-Z0-9]{1,9}-\d+)?$/, '缺陷编号形如 APP-1024'),
+  })
+  .partial();
+export type CasePatch = z.output<typeof casePatchSchema>;
+
+const sheetSchema = z.object({
+  name: z.string().trim().min(1).max(31, 'Excel 工作表名最多 31 个字'),
+  module: z.string().trim().max(60).default(''),
 });
-export type ImportInput = z.infer<typeof importSchema>;
 
-export const caseQuerySchema = z.object({
-  keyword: z.string().trim().max(100).optional(),
-  module: z.string().max(60).optional(),
-  status: z.enum(keys(TEST_CASE_STATUS)).optional(),
-  mode: z.enum(keys(TEST_CASE_MODE)).optional(),
-  page: z.coerce.number().int().min(1).max(10_000).default(1),
-  pageSize: z.coerce.number().int().min(1).max(200).default(50),
+const questionSchema = z.object({
+  module: z.string().trim().max(60).default(''),
+  question: z.string().trim().min(1).max(2000),
+  answer: z.string().max(2000).default(''),
+  confirmer: z.string().max(60).default(''),
 });
-export type CaseQuery = z.infer<typeof caseQuerySchema>;
+export type QuestionInput = z.output<typeof questionSchema>;
 
-/** 批量改状态（审核通过 / 废弃 / 退回待审核）或删除 */
-export const caseBulkSchema = z.object({
-  ids: z.array(z.uuid()).min(1).max(500),
-  action: z.enum(['approve', 'obsolete', 'draft', 'delete']),
-});
-export type CaseBulkInput = z.infer<typeof caseBulkSchema>;
+/** 带工作表名的用例（一次创建整份文件时用） */
+const sheetCaseSchema = z.object({ sheet: z.string().trim().min(1).max(31) }).and(caseInputSchema);
 
-export const runCreateSchema = z.object({
+/** 新建用例文件（Claude 生成或 Excel 导入解析后） */
+export const suiteCreateSchema = z.object({
   name: z.string().trim().min(1).max(100),
-  env: z.string().trim().max(100).default(''),
-  build: z.string().trim().max(200).default(''),
-  caseIds: z.array(z.uuid()).min(1).max(500),
+  docName: z.string().trim().max(100).default(''),
+  source: z.string().trim().max(1000).default(''),
+  notes: z.array(z.string().max(500)).max(30).optional(),
+  sheets: z.array(sheetSchema).min(1).max(50),
+  cases: z.array(sheetCaseSchema).max(3000).default([]),
+  questions: z.array(questionSchema).max(500).default([]),
 });
-export type RunCreateInput = z.infer<typeof runCreateSchema>;
+export type SuiteCreateInput = z.output<typeof suiteCreateSchema>;
 
-export const runUpdateSchema = z.object({
-  name: z.string().trim().min(1).max(100).optional(),
-  env: z.string().trim().max(100).optional(),
-  build: z.string().trim().max(200).optional(),
-  status: z.enum(['running', 'done']).optional(),
-});
-export type RunUpdateInput = z.infer<typeof runUpdateSchema>;
+export const suitePatchSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    docName: z.string().trim().max(100),
+    source: z.string().trim().max(1000),
+    notes: z.array(z.string().max(500)).max(30),
+  })
+  .partial();
+export type SuitePatch = z.output<typeof suitePatchSchema>;
 
-export const resultUpdateSchema = z.object({
-  status: z.enum(keys(TEST_RESULT_STATUS)).optional(),
-  note: z.string().max(10_000).optional(),
-  /** 关联缺陷编号（如 APP-23）；传空串解除关联 */
-  defectCode: z
-    .string()
-    .trim()
-    .regex(/^([A-Z][A-Z0-9]{1,9}-\d+)?$/, '缺陷编号形如 APP-1024')
-    .optional(),
+/** 往一个工作表追加用例（Claude 分批写入；工作表不存在时自动新建） */
+export const addCasesSchema = z.object({
+  sheet: z.string().trim().min(1).max(31),
+  module: z.string().trim().max(60).optional(),
+  cases: z.array(caseInputSchema).min(1).max(200),
 });
-export type ResultUpdateInput = z.infer<typeof resultUpdateSchema>;
+export type AddCasesInput = z.output<typeof addCasesSchema>;
+
+export const addQuestionsSchema = z.object({
+  questions: z.array(questionSchema).min(1).max(200),
+});
+
+export const questionPatchSchema = z
+  .object({
+    module: z.string().trim().max(60),
+    question: z.string().trim().min(1).max(2000),
+    answer: z.string().max(2000),
+    confirmer: z.string().max(60),
+  })
+  .partial();
+export type QuestionPatch = z.output<typeof questionPatchSchema>;

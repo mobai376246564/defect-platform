@@ -917,3 +917,65 @@ body.col-resizing {
   border: 1px solid var(--sider-border);
   vertical-align: middle;
 }
+
+/* ---------- 自动化测试：用例文件（仿团队 Excel 用例表） ---------- */
+
+/* 表头：深蓝底白字，与 Excel 一致 */
+.suite-sheet .ant-table-thead > tr > th,
+.suite-sheet .ant-table-thead > tr > td {
+  background: #1f4e78 !important;
+  color: #fff !important;
+  font-weight: 600;
+  text-align: center;
+}
+.suite-sheet .ant-table-thead .ant-table-filter-trigger {
+  color: rgba(255, 255, 255, 0.75);
+}
+.suite-sheet .ant-table-thead .ant-table-filter-trigger.active {
+  color: #ffd666;
+}
+.suite-sheet .ant-table-tbody > tr > td {
+  vertical-align: top;
+}
+
+/* 单元格文字保留换行（步骤、预期是多行） */
+.suite-cell,
+.suite-cell-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 22px;
+}
+.suite-cell {
+  cursor: text;
+  border-radius: 4px;
+  margin: -2px -4px;
+  padding: 2px 4px;
+}
+.suite-cell:hover {
+  background: var(--ant-color-fill-tertiary);
+}
+
+/* P0 红色粗体 */
+.suite-p0 {
+  color: #c00000;
+  font-weight: 700;
+}
+
+/* 底部工作表页签 */
+.suite-tabs.ant-tabs-bottom > .ant-tabs-nav {
+  margin-top: 8px;
+}
+.suite-tabs .ant-tabs-tab {
+  font-size: 13px;
+}
+/* 当前工作表页签：像 Excel 一样突出显示 */
+.suite-tabs .ant-tabs-tab.ant-tabs-tab-active {
+  background: var(--ant-color-primary-bg);
+  font-weight: 600;
+}
+
+.suite-notes {
+  margin-top: 16px;
+  padding-left: 18px;
+  color: var(--ant-color-text-secondary);
+}

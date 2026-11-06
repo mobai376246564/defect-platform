@@ -470,76 +470,93 @@ export interface UpdateStatus {
 
 // ---------- 自动化测试 ----------
 
-/** 用例库里的一条测试用例 */
-export interface TestCaseItem {
+export type TestResultKey = 'pending' | 'passed' | 'failed' | 'doubtful' | 'blocked' | 'na';
+
+/** 用例文件列表项；stats 为当前轮次各测试结果的条数 */
+export interface TestSuiteItem {
   id: string;
-  code: string;
   seq: number;
-  module: string;
-  title: string;
-  priority: string;
-  precondition: string;
-  steps: string[];
-  expected: string[];
-  testData: string;
-  mode: 'auto' | 'manual';
-  manualReason: string;
-  env: string;
+  name: string;
+  docName: string;
   source: string;
-  status: 'draft' | 'approved' | 'obsolete';
-  origin: 'ai' | 'manual';
+  round: number;
+  sheetCount: number;
+  total: number;
+  stats: Partial<Record<TestResultKey, number>>;
+  createdByName: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface TestCaseModule {
-  module: string;
-  count: number;
-}
-
-/** 执行记录列表项；stats 为各结果状态的条数 */
-export interface TestRunItem {
+/** 用例文件里的一行用例（字段与团队 Excel 用例表的列一致） */
+export interface TestCaseRow {
   id: string;
+  sheet: string;
+  sortOrder: number;
   code: string;
-  name: string;
-  env: string;
-  build: string;
-  status: 'running' | 'done';
-  createdByName: string | null;
-  createdAt: string;
-  finishedAt: string | null;
-  stats: Partial<Record<TestResultStatusKey, number>>;
-}
-
-export type TestResultStatusKey =
-  'pending' | 'passed' | 'failed' | 'doubtful' | 'blocked' | 'skipped';
-
-export interface TestResultItem {
-  id: string;
-  caseId: string;
-  status: TestResultStatusKey;
-  executor: 'manual' | 'ai';
+  module: string;
+  subModule: string;
+  testPoint: string;
+  title: string;
+  priority: string;
+  caseType: string;
+  precondition: string;
+  steps: string;
+  expected: string;
+  actualResult: string;
+  result: TestResultKey;
+  remark: string;
+  mode: 'auto' | 'manual';
+  defectCode: string | null;
+  executor: 'manual' | 'ai' | null;
   executedByName: string | null;
   executedAt: string | null;
-  note: string;
-  defectCode: string | null;
-  testCase: Pick<
-    TestCaseItem,
-    | 'id'
-    | 'code'
-    | 'title'
-    | 'module'
-    | 'priority'
-    | 'mode'
-    | 'manualReason'
-    | 'precondition'
-    | 'steps'
-    | 'expected'
-    | 'testData'
-    | 'env'
-  >;
 }
 
-export interface TestRunDetail extends Omit<TestRunItem, 'stats'> {
-  results: TestResultItem[];
+export interface TestQuestionItem {
+  id: string;
+  seq: number;
+  module: string;
+  question: string;
+  answer: string;
+  confirmer: string;
+}
+
+export interface TestRoundItem {
+  id: string;
+  round: number;
+  stats: Partial<Record<TestResultKey, number>>;
+  finishedAt: string;
+  finishedByName: string | null;
+}
+
+/** 整份用例文件 */
+export interface TestSuiteDetail {
+  id: string;
+  seq: number;
+  name: string;
+  docName: string;
+  source: string;
+  notes: string[];
+  sheets: { name: string; module: string }[];
+  round: number;
+  cases: TestCaseRow[];
+  questions: TestQuestionItem[];
+  rounds: TestRoundItem[];
+}
+
+/** 某一轮的存档 */
+export interface TestRoundDetail {
+  round: number;
+  finishedAt: string;
+  results: {
+    code: string;
+    sheet: string;
+    title: string;
+    result: TestResultKey;
+    actualResult: string;
+    remark: string;
+    defectCode: string | null;
+    executedAt: string | null;
+  }[];
 }

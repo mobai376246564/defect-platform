@@ -28,12 +28,8 @@ const NotificationsPage = page(
   'NotificationsPage',
 );
 const ReportsPage = page(() => import('./pages/reports/ReportsPage'), 'ReportsPage');
-const TestCasesPage = page(() => import('./pages/tests/TestCasesPage'), 'TestCasesPage');
-const TestRunsPage = page(() => import('./pages/tests/TestRunsPage'), 'TestRunsPage');
-const TestRunDetailPage = page(
-  () => import('./pages/tests/TestRunDetailPage'),
-  'TestRunDetailPage',
-);
+const TestSuitesPage = page(() => import('./pages/tests/TestSuitesPage'), 'TestSuitesPage');
+const TestSuitePage = page(() => import('./pages/tests/TestSuitePage'), 'TestSuitePage');
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -75,9 +71,8 @@ export function AppRoutes() {
         <Route path="/p/:key/bugs/board" element={<DefectBoardPage />} />
         <Route path="/p/:key/bugs/:code" element={<DefectDetailPage />} />
         <Route path="/p/:key/reports" element={<ReportsPage />} />
-        <Route path="/p/:key/tests" element={<TestCasesPage />} />
-        <Route path="/p/:key/tests/runs" element={<TestRunsPage />} />
-        <Route path="/p/:key/tests/runs/:id" element={<TestRunDetailPage />} />
+        <Route path="/p/:key/tests" element={<TestSuitesPage />} />
+        <Route path="/p/:key/tests/:id" element={<TestSuitePage />} />
         <Route path="/p/:key/settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/todo" replace />} />

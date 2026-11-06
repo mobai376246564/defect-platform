@@ -1,34 +1,109 @@
 import type { AddressInfo } from 'node:net';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import ExcelJS from 'exceljs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { auth, createTestApp, createUser, projectKey, type TestContext } from './helpers';
 
 type ToolResult = { content: { type: string; text?: string }[]; isError?: boolean };
 
-/** Claude 生成稿（POC 格式）里的一条用例：执行方式写中文、前置条件和测试数据用 pre / data */
-const POC_CASE = {
-  id: 'WEA-02',
-  module: '天气',
-  priority: 'P1',
-  title: '关闭「显示时间」时隐藏「显示天气」',
-  pre: 'BOX 在线',
-  steps: ['关闭「显示时间」', '再打开「显示时间」'],
-  expected: ['关闭后「显示天气」隐藏', '打开后恢复'],
-  data: '',
-  mode: '自动',
-  env: '编辑器、真机',
-  source: '一、2',
-};
+const HEADER = [
+  '用例编号',
+  '需求文档',
+  '模块',
+  '子模块',
+  '测试点',
+  '用例标题',
+  '优先级',
+  '用例类型',
+  '前置条件',
+  '测试步骤',
+  '预期结果',
+  '实际结果',
+  '测试结果',
+  '备注',
+];
 
-describe('automated testing: cases and runs (e2e)', () => {
+/** 按团队用例表的格式造一个 Excel：概览、测试点汇总、需求待确认、两个模块工作表 */
+async function teamWorkbook(): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  const ov = wb.addWorksheet('概览');
+  ov.getCell('A1').value = 'BUD BOX 1.0.2 需求测试用例';
+  ov.getCell('A3').value = '需求来源';
+  ov.getCell('A4').value = 'https://claude.ai/artifact/doc（rev 148）';
+  ov.getRow(6).values = ['需求文档', '模块', '工作表', '用例数', 'P0', 'P1', 'P2', 'P3'];
+  ov.getRow(7).values = ['BUD BOX 1.0.2 需求', '首页框架与多台BOX', '首页与多台BOX', 1, 1, 0, 0, 0];
+  ov.getRow(8).values = ['BUD BOX 1.0.2 需求', '天气', '天气', 2, 1, 1, 0, 0];
+  ov.getRow(9).values = ['合计', { formula: 'SUM(D7:D8)', result: 3 }];
+  ov.getCell('A11').value = '优先级说明：P0 核心功能';
+  wb.addWorksheet('测试点汇总').addRow(['序号', '需求文档', '模块', '子模块', '测试点']);
+  const q = wb.addWorksheet('需求待确认');
+  q.addRow(['序号', '需求文档', '模块', '问题描述', '确认结果', '确认人']);
+  q.addRow([1, 'BUD BOX 1.0.2 需求', '天气', '35℃ 是否含 35℃？', '', '']);
+  const home = wb.addWorksheet('首页与多台BOX');
+  home.addRow(HEADER);
+  home.addRow([
+    'HOME-001',
+    'BUD BOX 1.0.2 需求',
+    '首页框架与多台BOX',
+    '首页功能格',
+    '格子布局',
+    '未开经期时 4 格',
+    'P0',
+    '功能',
+    '经期关怀未开启',
+    '1. 进入首页',
+    '显示 4 格',
+    '',
+    '未执行',
+    '',
+  ]);
+  const weather = wb.addWorksheet('天气');
+  weather.addRow(HEADER);
+  weather.addRow([
+    'WEA-001',
+    'BUD BOX 1.0.2 需求',
+    '天气',
+    '硬件显示',
+    '天气显示',
+    'BOX 时间旁显示天气',
+    'P0',
+    '硬件',
+    'BOX 在线',
+    '1. 查看 BOX',
+    '显示图标 + 温度',
+    '',
+    '未执行',
+    '',
+  ]);
+  weather.addRow([
+    'WEA-002',
+    'BUD BOX 1.0.2 需求',
+    '天气',
+    '设置开关',
+    '联动',
+    { richText: [{ text: '关闭显示时间' }, { text: '隐藏显示天气' }] },
+    'P1',
+    '功能',
+    '',
+    '1. 关闭「显示时间」\n2. 查看页面',
+    '「显示天气」隐藏',
+    '已隐藏',
+    '通过',
+    '',
+  ]);
+  return Buffer.from(await wb.xlsx.writeBuffer());
+}
+
+describe('automated testing: case files (e2e)', () => {
   let ctx: TestContext;
   let admin: Awaited<ReturnType<typeof createUser>>;
   let tester: Awaited<ReturnType<typeof createUser>>;
   let dev: Awaited<ReturnType<typeof createUser>>;
   let key: string;
   let url: URL;
-  const base = () => `/api/v1/projects/${key}/tests`;
+  let suiteId: string;
+  const base = () => `/api/v1/projects/${key}/tests/suites`;
 
   beforeAll(async () => {
     ctx = await createTestApp();
@@ -61,193 +136,198 @@ describe('automated testing: cases and runs (e2e)', () => {
     await ctx.app.close();
   });
 
-  it('imports Claude-generated cases as drafts with sequential codes', async () => {
+  it('imports a team-format Excel as one case file', async () => {
+    await ctx.http
+      .post(`${base()}/import`)
+      .set(auth(dev.token))
+      .attach('file', await teamWorkbook(), 'x.xlsx')
+      .expect(403);
+
     const res = await ctx.http
-      .post(`${base()}/cases/import`)
+      .post(`${base()}/import`)
       .set(auth(tester.token))
-      .send({
-        source: 'https://claude.ai/artifact/doc',
-        origin: 'ai',
-        cases: [
-          POC_CASE,
-          {
-            ...POC_CASE,
-            title: 'BOX 离线时不能切换',
-            mode: '人工',
-            manualReason: '需要让 BOX 离线',
-          },
-        ],
-      })
+      .attach('file', await teamWorkbook(), 'BUD BOX 用例.xlsx')
       .expect(201);
-    expect(res.body).toEqual({ count: 2, codes: ['TC-1', 'TC-2'] });
+    expect(res.body).toMatchObject({ name: 'BUD BOX 1.0.2 需求测试用例', total: 3 });
+    suiteId = res.body.id;
 
-    const list = await ctx.http.get(`${base()}/cases`).set(auth(dev.token)).expect(200);
-    expect(list.body.total).toBe(2);
-    const [first, second] = list.body.items;
-    expect(first).toMatchObject({
-      code: 'TC-1',
-      status: 'draft',
-      origin: 'ai',
-      mode: 'auto',
-      precondition: 'BOX 在线',
-      source: '一、2',
-      steps: POC_CASE.steps,
+    const suite = (await ctx.http.get(`${base()}/${suiteId}`).set(auth(dev.token)).expect(200))
+      .body;
+    expect(suite).toMatchObject({
+      docName: 'BUD BOX 1.0.2 需求',
+      source: 'https://claude.ai/artifact/doc（rev 148）',
+      notes: ['优先级说明：P0 核心功能'],
+      round: 1,
+      sheets: [
+        { name: '首页与多台BOX', module: '首页框架与多台BOX' },
+        { name: '天气', module: '天气' },
+      ],
+      questions: [{ seq: 1, module: '天气', question: '35℃ 是否含 35℃？' }],
     });
-    expect(second).toMatchObject({ code: 'TC-2', mode: 'manual', manualReason: '需要让 BOX 离线' });
-  });
-
-  it('rejects writes from developers and bad payloads', async () => {
-    await ctx.http
-      .post(`${base()}/cases`)
-      .set(auth(dev.token))
-      .send({ title: 'x', steps: ['a'], expected: ['b'] })
-      .expect(403);
-    const bad = await ctx.http
-      .post(`${base()}/cases`)
-      .set(auth(tester.token))
-      .send({ title: '没有步骤', steps: [], expected: ['b'], mode: '半自动' })
-      .expect(400);
-    expect(JSON.stringify(bad.body.issues)).toContain('steps');
-  });
-
-  it('creates, edits, filters and bulk-reviews cases', async () => {
-    const created = await ctx.http
-      .post(`${base()}/cases`)
-      .set(auth(tester.token))
-      .send({
-        title: '首页 4 格',
-        module: '首页框架',
-        steps: ['进入首页'],
-        expected: ['显示 4 格'],
-        testData: '经期关怀：关',
-      })
-      .expect(201);
-    expect(created.body).toMatchObject({ code: 'TC-3', origin: 'manual', status: 'draft' });
-
-    await ctx.http
-      .patch(`${base()}/cases/${created.body.id}`)
-      .set(auth(tester.token))
-      .send({ priority: 'P0', testData: '经期关怀：关 / 开' })
-      .expect(200);
-
-    const all = await ctx.http.get(`${base()}/cases`).set(auth(tester.token)).expect(200);
-    const ids = all.body.items.map((c: { id: string }) => c.id);
-    await ctx.http
-      .post(`${base()}/cases/bulk`)
-      .set(auth(tester.token))
-      .send({ ids, action: 'approve' })
-      .expect(201);
-
-    const approved = await ctx.http
-      .get(`${base()}/cases`)
-      .query({ status: 'approved', module: '首页框架' })
-      .set(auth(tester.token))
-      .expect(200);
-    expect(approved.body.items).toHaveLength(1);
-    expect(approved.body.items[0]).toMatchObject({ priority: 'P0', testData: '经期关怀：关 / 开' });
-
-    const byCode = await ctx.http
-      .get(`${base()}/cases`)
-      .query({ keyword: 'tc-3' })
-      .set(auth(tester.token))
-      .expect(200);
-    expect(byCode.body.items.map((c: { code: string }) => c.code)).toEqual(['TC-3']);
-
-    const modules = await ctx.http.get(`${base()}/cases/modules`).set(auth(dev.token)).expect(200);
-    expect(modules.body).toEqual([
-      { module: '天气', count: 2 },
-      { module: '首页框架', count: 1 },
+    expect(suite.cases.map((c: { code: string }) => c.code)).toEqual([
+      'HOME-001',
+      'WEA-001',
+      'WEA-002',
     ]);
+    // 硬件类按用例类型推断为人工；富文本、已填的结果都能读出来
+    expect(suite.cases[1]).toMatchObject({ mode: 'manual', priority: 'P0', result: 'pending' });
+    expect(suite.cases[2]).toMatchObject({
+      mode: 'auto',
+      title: '关闭显示时间隐藏显示天气',
+      steps: '1. 关闭「显示时间」\n2. 查看页面',
+      actualResult: '已隐藏',
+      result: 'passed',
+    });
+
+    const list = await ctx.http.get(base()).set(auth(dev.token)).expect(200);
+    expect(list.body[0]).toMatchObject({
+      total: 3,
+      sheetCount: 2,
+      stats: { pending: 2, passed: 1 },
+    });
   });
 
-  it('runs cases, records results and links a defect', async () => {
-    const cases = (await ctx.http.get(`${base()}/cases`).set(auth(tester.token)).expect(200)).body
-      .items as { id: string; code: string }[];
-    const run = await ctx.http
-      .post(`${base()}/runs`)
+  it('rejects files that are not team-format test cases', async () => {
+    const wb = new ExcelJS.Workbook();
+    wb.addWorksheet('Sheet1').addRow(['随便', '什么']);
+    const res = await ctx.http
+      .post(`${base()}/import`)
       .set(auth(tester.token))
-      .send({
-        name: '1.0.2 冒烟',
-        env: '华为 SEA-AL10',
-        build: 'cn_1.0.2',
-        caseIds: cases.map((c) => c.id),
-      })
-      .expect(201);
-    expect(run.body).toMatchObject({ code: 'RUN-1', status: 'running' });
-
-    const caseId = cases[0].id;
-    await ctx.http
-      .patch(`${base()}/runs/${run.body.id}/results/${caseId}`)
-      .set(auth(dev.token))
-      .send({ status: 'passed' })
-      .expect(403);
-    await ctx.http
-      .patch(`${base()}/runs/${run.body.id}/results/${caseId}`)
-      .set(auth(tester.token))
-      .send({ status: 'failed', note: '显示天气没有隐藏', defectCode: `${key}-999` })
+      .attach('file', Buffer.from(await wb.xlsx.writeBuffer()), 'x.xlsx')
       .expect(400);
+    expect(res.body.message).toContain('用例编号');
+    await ctx.http
+      .post(`${base()}/import`)
+      .set(auth(tester.token))
+      .attach('file', Buffer.from('a,b'), 'x.csv')
+      .expect(400);
+  });
+
+  it('records results, links defects and starts a new round', async () => {
+    const suite = (await ctx.http.get(`${base()}/${suiteId}`).set(auth(tester.token))).body;
+    const home = suite.cases[0];
+    await ctx.http
+      .patch(`${base()}/${suiteId}/cases/${home.id}`)
+      .set(auth(dev.token))
+      .send({ result: '通过' })
+      .expect(403);
 
     const defect = await ctx.http
       .post(`/api/v1/projects/${key}/defects`)
       .set(auth(tester.token))
-      .send({ title: '显示天气没有隐藏', severity: 'normal' })
+      .send({ title: '首页只有 3 格', severity: 'normal' })
       .expect(201);
-    await ctx.http
-      .patch(`${base()}/runs/${run.body.id}/results/${caseId}`)
+    const updated = await ctx.http
+      .patch(`${base()}/${suiteId}/cases/${home.id}`)
       .set(auth(tester.token))
-      .send({ status: 'failed', note: '显示天气没有隐藏', defectCode: defect.body.code })
+      .send({ result: '失败', actualResult: '只有 3 格', defectCode: defect.body.code })
       .expect(200);
+    expect(updated.body).toMatchObject({
+      result: 'failed',
+      executor: 'manual',
+      defectCode: defect.body.code,
+    });
+
+    // 只改传了的字段：改备注不会把结果重置
     await ctx.http
-      .patch(`${base()}/runs/${run.body.id}/results/${cases[1].id}`)
+      .patch(`${base()}/${suiteId}/cases/${home.id}`)
       .set(auth(tester.token))
-      .send({ status: 'doubtful', note: '文案不同' })
+      .send({ remark: '安卓复现' })
+      .expect(200);
+    const after = (await ctx.http.get(`${base()}/${suiteId}`).set(auth(tester.token))).body;
+    expect(after.cases[0]).toMatchObject({
+      result: 'failed',
+      remark: '安卓复现',
+      executedByName: '测试',
+    });
+
+    const q = after.questions[0];
+    await ctx.http
+      .patch(`${base()}/${suiteId}/questions/${q.id}`)
+      .set(auth(tester.token))
+      .send({ answer: '含 35℃', confirmer: '产品' })
       .expect(200);
 
-    const detail = await ctx.http
-      .get(`${base()}/runs/${run.body.id}`)
+    const round = await ctx.http
+      .post(`${base()}/${suiteId}/rounds`)
+      .set(auth(tester.token))
+      .expect(201);
+    expect(round.body).toEqual({ round: 2 });
+    const reset = (await ctx.http.get(`${base()}/${suiteId}`).set(auth(tester.token))).body;
+    expect(reset.cases.every((c: { result: string }) => c.result === 'pending')).toBe(true);
+    expect(reset.cases[0]).toMatchObject({
+      remark: '安卓复现',
+      defectCode: null,
+      actualResult: '',
+    });
+    expect(reset.rounds[0]).toMatchObject({
+      round: 1,
+      stats: { failed: 1, passed: 1, pending: 1 },
+    });
+
+    const archived = await ctx.http
+      .get(`${base()}/${suiteId}/rounds/1`)
       .set(auth(dev.token))
       .expect(200);
-    expect(detail.body.results).toHaveLength(cases.length);
-    expect(detail.body.results[0]).toMatchObject({
-      status: 'failed',
-      executor: 'manual',
-      executedByName: '测试',
+    expect(archived.body.results[0]).toMatchObject({
+      code: 'HOME-001',
+      result: 'failed',
       defectCode: defect.body.code,
-      testCase: { code: 'TC-1' },
     });
-
-    const runs = await ctx.http.get(`${base()}/runs`).set(auth(dev.token)).expect(200);
-    expect(runs.body[0]).toMatchObject({
-      code: 'RUN-1',
-      createdByName: '测试',
-      stats: { failed: 1, doubtful: 1, pending: cases.length - 2 },
-    });
-
-    const done = await ctx.http
-      .patch(`${base()}/runs/${run.body.id}`)
-      .set(auth(tester.token))
-      .send({ status: 'done' })
-      .expect(200);
-    expect(done.body.finishedAt).toBeTruthy();
   });
 
-  it('refuses obsolete cases in a new run', async () => {
-    const cases = (await ctx.http.get(`${base()}/cases`).set(auth(tester.token)).expect(200)).body
-      .items as { id: string }[];
-    await ctx.http
-      .post(`${base()}/cases/bulk`)
-      .set(auth(tester.token))
-      .send({ ids: [cases[0].id], action: 'obsolete' })
-      .expect(201);
+  it('exports an Excel that imports back to the same file', async () => {
     const res = await ctx.http
-      .post(`${base()}/runs`)
+      .get(`${base()}/${suiteId}/export`)
+      .set(auth(dev.token))
+      .buffer(true)
+      .parse((r, cb) => {
+        const chunks: Buffer[] = [];
+        r.on('data', (c: Buffer) => chunks.push(c));
+        r.on('end', () => cb(null, Buffer.concat(chunks)));
+      })
+      .expect(200);
+    expect(res.headers['content-disposition']).toContain(
+      encodeURIComponent('BUD BOX 1.0.2 需求测试用例'),
+    );
+
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(res.body as never);
+    expect(wb.worksheets.map((w) => w.name)).toEqual([
+      '概览',
+      '测试点汇总',
+      '需求待确认',
+      '首页与多台BOX',
+      '天气',
+    ]);
+    const weather = wb.getWorksheet('天气')!;
+    expect(weather.getRow(1).getCell(15).value).toBe('执行方式');
+    expect(weather.getRow(2).getCell(15).value).toBe('人工');
+    expect(weather.getRow(2).getCell(13).dataValidation?.formulae?.[0]).toContain('存疑');
+    expect(wb.getWorksheet('需求待确认')!.getRow(2).getCell(5).value).toBe('含 35℃');
+    expect(wb.getWorksheet('测试点汇总')!.getRow(3).values).toContain('WEA-001');
+
+    const again = await ctx.http
+      .post(`${base()}/import`)
       .set(auth(tester.token))
-      .send({ name: '回归', caseIds: [cases[0].id] })
-      .expect(400);
-    expect(res.body.message).toContain('已废弃');
+      .attach('file', res.body as Buffer, 'export.xlsx')
+      .expect(201);
+    const copy = (await ctx.http.get(`${base()}/${again.body.id}`).set(auth(tester.token))).body;
+    expect(copy.sheets).toEqual([
+      { name: '首页与多台BOX', module: '首页框架与多台BOX' },
+      { name: '天气', module: '天气' },
+    ]);
+    expect(copy.cases.map((c: { code: string; mode: string }) => [c.code, c.mode])).toEqual([
+      ['HOME-001', 'auto'],
+      ['WEA-001', 'manual'],
+      ['WEA-002', 'auto'],
+    ]);
+    expect(copy.questions[0]).toMatchObject({ answer: '含 35℃', confirmer: '产品' });
+
+    await ctx.http.delete(`${base()}/${again.body.id}`).set(auth(tester.token)).expect(204);
   });
 
-  it('lets Claude save and list cases through MCP', async () => {
+  it('lets Claude generate a case file through MCP', async () => {
     const token = (
       await ctx.http
         .post('/api/v1/auth/tokens')
@@ -262,28 +342,94 @@ describe('automated testing: cases and runs (e2e)', () => {
       }),
     );
     try {
+      // Claude Code 连接时会先列出工具，入参 schema 必须能转成 JSON Schema
+      const tools = await client.listTools();
+      expect(tools.tools.map((t) => t.name)).toEqual(
+        expect.arrayContaining([
+          'list_test_suites',
+          'create_test_suite',
+          'add_test_cases',
+          'add_requirement_questions',
+        ]),
+      );
       const prompt = await client.getPrompt({
         name: 'gen_test_cases',
         arguments: { project: key, source: 'https://claude.ai/artifact/doc' },
       });
-      expect(JSON.stringify(prompt.messages)).toContain('save_test_cases');
+      expect(JSON.stringify(prompt.messages)).toContain('add_test_cases');
 
-      const saved = (await client.callTool({
-        name: 'save_test_cases',
+      const created = (await client.callTool({
+        name: 'create_test_suite',
         arguments: {
           project: key,
+          name: '专注需求测试用例',
+          docName: '专注需求',
           source: 'https://claude.ai/artifact/doc',
-          cases: [{ ...POC_CASE, title: '纪念日入口' }],
+          sheets: [{ name: '专注', module: '专注' }],
         },
       })) as ToolResult;
-      expect(saved.isError).toBeFalsy();
-      expect(saved.content[0].text).toContain('已保存 1 条用例（自动 1，人工 0）');
+      const id = /id：(\S+)/.exec(created.content[0].text ?? '')?.[1];
+      expect(id).toBeTruthy();
 
-      const listed = (await client.callTool({
-        name: 'list_test_cases',
-        arguments: { project: key, keyword: '纪念日' },
+      const added = (await client.callTool({
+        name: 'add_test_cases',
+        arguments: {
+          project: key,
+          suiteId: id,
+          sheet: '专注',
+          cases: [
+            {
+              code: 'FOC-001',
+              module: '专注',
+              subModule: '聊天开始',
+              testPoint: '时长上限',
+              title: '专注 90 分钟按 60 分钟',
+              priority: 'P1',
+              caseType: '边界',
+              steps: ['发送「专注 90 分钟」', '点开始'],
+              expected: '伙伴说明按 60 分钟',
+            },
+            {
+              code: 'FOC-002',
+              title: 'BOX 旋钮结束专注',
+              caseType: '硬件',
+              steps: '1. 拧旋钮',
+              expected: '专注结束',
+            },
+          ],
+        },
       })) as ToolResult;
-      expect(listed.content[0].text).toMatch(/TC-\d+\t\[draft\/auto\/P1\]\t天气\t纪念日入口/);
+      expect(added.isError).toBeFalsy();
+      expect(added.content[0].text).toContain('已写入 2 条');
+
+      await client.callTool({
+        name: 'add_requirement_questions',
+        arguments: {
+          project: key,
+          suiteId: id,
+          questions: [{ module: '专注', question: '专注中被唤醒时伙伴怎么回应？' }],
+        },
+      });
+
+      const suite = (await ctx.http.get(`${base()}/${id}`).set(auth(tester.token))).body;
+      expect(suite.cases[0]).toMatchObject({
+        steps: '1. 发送「专注 90 分钟」\n2. 点开始',
+        mode: 'auto',
+      });
+      expect(suite.cases[1]).toMatchObject({ mode: 'manual', priority: 'P2' });
+      expect(suite.questions).toHaveLength(1);
+
+      const dup = (await client.callTool({
+        name: 'add_test_cases',
+        arguments: {
+          project: key,
+          suiteId: id,
+          sheet: '专注',
+          cases: [{ code: 'FOC-001', title: '重复', steps: 'x', expected: 'y' }],
+        },
+      })) as ToolResult;
+      expect(dup.isError).toBe(true);
+      expect(dup.content[0].text).toContain('FOC-001');
     } finally {
       await client.close();
     }

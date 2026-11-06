@@ -72,9 +72,8 @@ model Project {
   workflow    Json
   /// 缺陷编号自增序列
   defectSeq   Int      @default(0)
-  /// 测试用例编号（TC-n）、执行记录编号（RUN-n）自增序列
-  testCaseSeq Int      @default(0)
-  testRunSeq  Int      @default(0)
+  /// 用例文件编号自增序列
+  testSuiteSeq Int     @default(0)
   defaultOwnerId String? @db.Uuid
   /// 当前迭代版本：MR 合并、缺陷自动转为已解决时填入修复版本（方案 7.7），为空则不填
   fixVersionId String? @db.Uuid
@@ -88,8 +87,7 @@ model Project {
   versions Version[]
   defects  Defect[]
   views    SavedView[]
-  testCases TestCase[]
-  testRuns  TestRun[]
+  testSuites TestSuite[]
 }
 
 model ProjectMember {
@@ -391,86 +389,107 @@ model SavedView {
   @@index([projectId])
 }
 
-/// 测试用例（自动化测试页签）：Claude 按需求文档生成或测试手写，审核后入库；AI 执行与人工执行用同一份
+/// 用例文件（自动化测试）：一份需求文档对应一个文件，结构与团队的 Excel 用例表一致——
+/// 概览、测试点汇总（由用例汇总得出）、需求待确认，以及每个模块一个工作表
+model TestSuite {
+  id          String   @id @default(uuid()) @db.Uuid
+  projectId   String   @db.Uuid
+  seq         Int
+  /// 文件名，如「BUD BOX 1.0.2 需求测试用例」
+  name        String
+  /// 需求文档名（用例表的「需求文档」列）
+  docName     String   @default("")
+  /// 需求来源（链接、版本说明）
+  source      String   @default("")
+  /// 概览页底部的说明（优先级说明、用例类型说明等），一行一条
+  notes       String[]
+  /// 模块工作表的顺序：[{ "name": 工作表名, "module": 模块名 }]
+  sheets      Json
+  /// 当前轮次，从 1 开始；「开始新一轮」时把本轮结果存档并加一
+  round       Int      @default(1)
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project   Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  cases     TestCase[]
+  questions TestQuestion[]
+  rounds    TestRound[]
+
+  @@unique([projectId, seq])
+}
+
+/// 用例：一行对应 Excel 里的一行，结果直接记在用例上（当前轮次）
 model TestCase {
-  id           String   @id @default(uuid()) @db.Uuid
-  projectId    String   @db.Uuid
-  seq          Int
-  /// 用例所属功能模块，自由文本（如「经期关怀 · 性别」），不关联缺陷模块
-  module       String   @default("")
+  id           String    @id @default(uuid()) @db.Uuid
+  suiteId      String    @db.Uuid
+  /// 所在工作表（模块）
+  sheet        String
+  sortOrder    Int
+  /// 用例编号，如 WEA-001，文件内唯一
+  code         String
+  module       String    @default("")
+  subModule    String    @default("")
+  testPoint    String    @default("")
   title        String
   /// P0–P3
-  priority     String   @default("P2")
-  precondition String   @default("")
-  steps        String[]
-  expected     String[]
-  /// 测试数据（边界值等），测试可随时补充
-  testData     String   @default("")
-  /// auto 可自动执行 / manual 仅人工
-  mode         String   @default("auto")
-  manualReason String   @default("")
-  /// 适用环境（编辑器、真机、BOX 硬件…），自由文本
-  env          String   @default("")
-  /// 来源：需求文档链接与章节
-  source       String   @default("")
-  /// draft 待审核 / approved 已审核 / obsolete 已废弃
-  status       String   @default("draft")
-  /// ai Claude 生成 / manual 人工编写
-  origin       String   @default("manual")
-  createdById  String?  @db.Uuid
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  project Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  results TestCaseResult[]
-
-  @@unique([projectId, seq])
-  @@index([projectId, status])
-}
-
-/// 执行记录：一次执行一批用例（人工或 AI），记下环境与包版本 / 分支，便于对比不同环境的结果
-model TestRun {
-  id          String    @id @default(uuid()) @db.Uuid
-  projectId   String    @db.Uuid
-  seq         Int
-  name        String
-  /// 执行环境，如「Unity 编辑器」「华为 SEA-AL10 / Android 10」
-  env         String    @default("")
-  /// 包版本 / 分支 / commit
-  build       String    @default("")
-  /// running 进行中 / done 已结束
-  status      String    @default("running")
-  createdById String?   @db.Uuid
-  createdAt   DateTime  @default(now())
-  finishedAt  DateTime?
-
-  project Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  results TestCaseResult[]
-
-  @@unique([projectId, seq])
-  @@index([projectId, createdAt(sort: Desc)])
-}
-
-/// 一次执行里一条用例的结果
-model TestCaseResult {
-  id           String    @id @default(uuid()) @db.Uuid
-  runId        String    @db.Uuid
-  caseId       String    @db.Uuid
-  /// pending 未执行 / passed 通过 / failed 失败 / doubtful 存疑 / blocked 阻塞 / skipped 跳过
-  status       String    @default("pending")
-  /// manual 人工 / ai Claude
-  executor     String    @default("manual")
-  executedById String?   @db.Uuid
-  note         String    @default("")
-  /// 失败后建的缺陷
+  priority     String    @default("P2")
+  /// 功能 / 边界 / 异常 / UI / 交互 / 文案 / 兼容 / 服务端 / 硬件
+  caseType     String    @default("功能")
+  precondition String    @default("")
+  steps        String    @default("")
+  expected     String    @default("")
+  actualResult String    @default("")
+  /// pending 未执行 / passed 通过 / failed 失败 / doubtful 存疑 / blocked 阻塞 / na 不适用
+  result       String    @default("pending")
+  remark       String    @default("")
+  /// auto 可由 Claude 自动执行 / manual 人工
+  mode         String    @default("auto")
   defectId     String?   @db.Uuid
   defectCode   String?
+  /// manual 人工 / ai Claude
+  executor     String?
+  executedById String?   @db.Uuid
   executedAt   DateTime?
+  createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  run      TestRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
-  testCase TestCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  suite TestSuite @relation(fields: [suiteId], references: [id], onDelete: Cascade)
 
-  @@unique([runId, caseId])
-  @@index([caseId])
+  @@unique([suiteId, code])
+  @@index([suiteId, sheet, sortOrder])
+}
+
+/// 需求待确认：生成用例时发现的需求疑问，产品确认后回填
+model TestQuestion {
+  id        String   @id @default(uuid()) @db.Uuid
+  suiteId   String   @db.Uuid
+  seq       Int
+  module    String   @default("")
+  question  String
+  answer    String   @default("")
+  confirmer String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  suite TestSuite @relation(fields: [suiteId], references: [id], onDelete: Cascade)
+
+  @@unique([suiteId, seq])
+}
+
+/// 已结束的一轮执行：存下当时每条用例的结果，便于回看
+model TestRound {
+  id           String   @id @default(uuid()) @db.Uuid
+  suiteId      String   @db.Uuid
+  round        Int
+  /// 各结果的条数
+  stats        Json
+  /// [{ code, sheet, title, result, actualResult, remark, defectCode, executedAt }]
+  results      Json
+  finishedById String?  @db.Uuid
+  finishedAt   DateTime @default(now())
+
+  suite TestSuite @relation(fields: [suiteId], references: [id], onDelete: Cascade)
+
+  @@unique([suiteId, round])
 }

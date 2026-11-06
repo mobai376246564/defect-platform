@@ -10,10 +10,8 @@ import type {
   ProjectSummary,
   SavedViewItem,
   SystemVersion,
-  TestCaseItem,
-  TestCaseModule,
-  TestRunDetail,
-  TestRunItem,
+  TestSuiteDetail,
+  TestSuiteItem,
   UpdateStatus,
 } from './types';
 
@@ -158,35 +156,18 @@ export function usePendingUserCount(enabled: boolean) {
   });
 }
 
-/** 用例库分页列表 */
-export function useTestCases(key: string, query: Record<string, unknown>) {
+/** 项目的用例文件列表 */
+export function useTestSuites(key: string) {
   return useQuery({
-    queryKey: [...qk.tests(key), 'cases', query],
-    queryFn: () => api<Page<TestCaseItem>>(`/projects/${key}/tests/cases`, { query }),
-    placeholderData: (prev) => prev,
+    queryKey: [...qk.tests(key), 'suites'],
+    queryFn: () => api<TestSuiteItem[]>(`/projects/${key}/tests/suites`),
   });
 }
 
-/** 用例库里出现过的模块（筛选下拉） */
-export function useTestCaseModules(key: string) {
+/** 整份用例文件（全部工作表与用例） */
+export function useTestSuite(key: string, id: string) {
   return useQuery({
-    queryKey: [...qk.tests(key), 'modules'],
-    queryFn: () => api<TestCaseModule[]>(`/projects/${key}/tests/cases/modules`),
-  });
-}
-
-/** 执行记录列表 */
-export function useTestRuns(key: string) {
-  return useQuery({
-    queryKey: [...qk.tests(key), 'runs'],
-    queryFn: () => api<TestRunItem[]>(`/projects/${key}/tests/runs`),
-  });
-}
-
-/** 一次执行的详情（全部用例结果） */
-export function useTestRun(key: string, id: string) {
-  return useQuery({
-    queryKey: [...qk.tests(key), 'run', id],
-    queryFn: () => api<TestRunDetail>(`/projects/${key}/tests/runs/${id}`),
+    queryKey: [...qk.tests(key), 'suite', id],
+    queryFn: () => api<TestSuiteDetail>(`/projects/${key}/tests/suites/${id}`),
   });
 }
