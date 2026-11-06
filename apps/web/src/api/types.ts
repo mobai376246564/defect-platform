@@ -467,3 +467,79 @@ export interface UpdateStatus {
   updatedAt: string | null;
   log: string;
 }
+
+// ---------- 自动化测试 ----------
+
+/** 用例库里的一条测试用例 */
+export interface TestCaseItem {
+  id: string;
+  code: string;
+  seq: number;
+  module: string;
+  title: string;
+  priority: string;
+  precondition: string;
+  steps: string[];
+  expected: string[];
+  testData: string;
+  mode: 'auto' | 'manual';
+  manualReason: string;
+  env: string;
+  source: string;
+  status: 'draft' | 'approved' | 'obsolete';
+  origin: 'ai' | 'manual';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TestCaseModule {
+  module: string;
+  count: number;
+}
+
+/** 执行记录列表项；stats 为各结果状态的条数 */
+export interface TestRunItem {
+  id: string;
+  code: string;
+  name: string;
+  env: string;
+  build: string;
+  status: 'running' | 'done';
+  createdByName: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+  stats: Partial<Record<TestResultStatusKey, number>>;
+}
+
+export type TestResultStatusKey =
+  'pending' | 'passed' | 'failed' | 'doubtful' | 'blocked' | 'skipped';
+
+export interface TestResultItem {
+  id: string;
+  caseId: string;
+  status: TestResultStatusKey;
+  executor: 'manual' | 'ai';
+  executedByName: string | null;
+  executedAt: string | null;
+  note: string;
+  defectCode: string | null;
+  testCase: Pick<
+    TestCaseItem,
+    | 'id'
+    | 'code'
+    | 'title'
+    | 'module'
+    | 'priority'
+    | 'mode'
+    | 'manualReason'
+    | 'precondition'
+    | 'steps'
+    | 'expected'
+    | 'testData'
+    | 'env'
+  >;
+}
+
+export interface TestRunDetail extends Omit<TestRunItem, 'stats'> {
+  results: TestResultItem[];
+}

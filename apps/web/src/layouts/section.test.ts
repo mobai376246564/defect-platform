@@ -8,6 +8,8 @@ describe('menuSection', () => {
     ['/p/APP/bugs/board', 'board'],
     ['/p/APP/bugs/new', 'new'],
     ['/p/APP/reports', 'reports'],
+    ['/p/APP/tests', 'tests'],
+    ['/p/APP/tests/runs/9f1c', 'tests'],
     ['/p/APP/settings', 'settings'],
   ])('%s → %s', (path, section) => {
     expect(menuSection(path)).toBe(section);

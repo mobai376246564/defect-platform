@@ -72,6 +72,9 @@ model Project {
   workflow    Json
   /// 缺陷编号自增序列
   defectSeq   Int      @default(0)
+  /// 测试用例编号（TC-n）、执行记录编号（RUN-n）自增序列
+  testCaseSeq Int      @default(0)
+  testRunSeq  Int      @default(0)
   defaultOwnerId String? @db.Uuid
   /// 当前迭代版本：MR 合并、缺陷自动转为已解决时填入修复版本（方案 7.7），为空则不填
   fixVersionId String? @db.Uuid
@@ -85,6 +88,8 @@ model Project {
   versions Version[]
   defects  Defect[]
   views    SavedView[]
+  testCases TestCase[]
+  testRuns  TestRun[]
 }
 
 model ProjectMember {
@@ -384,4 +389,88 @@ model SavedView {
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
+}
+
+/// 测试用例（自动化测试页签）：Claude 按需求文档生成或测试手写，审核后入库；AI 执行与人工执行用同一份
+model TestCase {
+  id           String   @id @default(uuid()) @db.Uuid
+  projectId    String   @db.Uuid
+  seq          Int
+  /// 用例所属功能模块，自由文本（如「经期关怀 · 性别」），不关联缺陷模块
+  module       String   @default("")
+  title        String
+  /// P0–P3
+  priority     String   @default("P2")
+  precondition String   @default("")
+  steps        String[]
+  expected     String[]
+  /// 测试数据（边界值等），测试可随时补充
+  testData     String   @default("")
+  /// auto 可自动执行 / manual 仅人工
+  mode         String   @default("auto")
+  manualReason String   @default("")
+  /// 适用环境（编辑器、真机、BOX 硬件…），自由文本
+  env          String   @default("")
+  /// 来源：需求文档链接与章节
+  source       String   @default("")
+  /// draft 待审核 / approved 已审核 / obsolete 已废弃
+  status       String   @default("draft")
+  /// ai Claude 生成 / manual 人工编写
+  origin       String   @default("manual")
+  createdById  String?  @db.Uuid
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  project Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  results TestCaseResult[]
+
+  @@unique([projectId, seq])
+  @@index([projectId, status])
+}
+
+/// 执行记录：一次执行一批用例（人工或 AI），记下环境与包版本 / 分支，便于对比不同环境的结果
+model TestRun {
+  id          String    @id @default(uuid()) @db.Uuid
+  projectId   String    @db.Uuid
+  seq         Int
+  name        String
+  /// 执行环境，如「Unity 编辑器」「华为 SEA-AL10 / Android 10」
+  env         String    @default("")
+  /// 包版本 / 分支 / commit
+  build       String    @default("")
+  /// running 进行中 / done 已结束
+  status      String    @default("running")
+  createdById String?   @db.Uuid
+  createdAt   DateTime  @default(now())
+  finishedAt  DateTime?
+
+  project Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  results TestCaseResult[]
+
+  @@unique([projectId, seq])
+  @@index([projectId, createdAt(sort: Desc)])
+}
+
+/// 一次执行里一条用例的结果
+model TestCaseResult {
+  id           String    @id @default(uuid()) @db.Uuid
+  runId        String    @db.Uuid
+  caseId       String    @db.Uuid
+  /// pending 未执行 / passed 通过 / failed 失败 / doubtful 存疑 / blocked 阻塞 / skipped 跳过
+  status       String    @default("pending")
+  /// manual 人工 / ai Claude
+  executor     String    @default("manual")
+  executedById String?   @db.Uuid
+  note         String    @default("")
+  /// 失败后建的缺陷
+  defectId     String?   @db.Uuid
+  defectCode   String?
+  executedAt   DateTime?
+  updatedAt    DateTime  @updatedAt
+
+  run      TestRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  testCase TestCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, caseId])
+  @@index([caseId])
 }

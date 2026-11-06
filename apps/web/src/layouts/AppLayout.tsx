@@ -4,6 +4,7 @@ import {
   BugOutlined,
   CheckSquareOutlined,
   CloudSyncOutlined,
+  ExperimentOutlined,
   MenuFoldOutlined,
   MenuOutlined,
   MenuUnfoldOutlined,
@@ -173,6 +174,11 @@ export function AppLayout() {
           key: 'reports',
           icon: chip(<PieChartOutlined />, '#06b6d4'),
           label: <Link to={`/p/${projectKey}/reports`}>统计报表</Link>,
+        },
+        {
+          key: 'tests',
+          icon: chip(<ExperimentOutlined />, '#f97316'),
+          label: <Link to={`/p/${projectKey}/tests`}>自动化测试</Link>,
         },
         ...(canConfigure
           ? [

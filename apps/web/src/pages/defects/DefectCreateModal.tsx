@@ -8,7 +8,7 @@ import {
 } from '@defect/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { App, Col, Collapse, Form, Input, Modal, Row, Select } from 'antd';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import type { DefectRow, ProjectDetail } from '../../api/types';
@@ -36,17 +36,27 @@ interface MoreField {
   node: ReactNode;
 }
 
-/** 在缺陷列表里直接提单：常用字段在前，期望 / 实际结果等放在“更多信息”里（默认展开） */
+/**
+ * 在缺陷列表里直接提单：常用字段在前，期望 / 实际结果等放在“更多信息”里（默认展开）。
+ * 自动化测试的执行记录里也用它“一键建单”：initialValues 预填标题、步骤、期望 / 实际结果，
+ * 建好后通过 onCreated 把缺陷编号关联回用例结果。
+ */
 export function DefectCreateModal({
   projectKey,
   project,
   open,
   onClose,
+  initialValues,
+  onCreated,
 }: {
   projectKey: string;
   project: ProjectDetail | undefined;
   open: boolean;
   onClose: () => void;
+  /** 打开时预填的字段 */
+  initialValues?: Partial<FormValues>;
+  /** 建单成功后回调（附件上传失败也会回调，因为缺陷已建成） */
+  onCreated?: (created: DefectRow) => void;
 }) {
   const [form] = Form.useForm<FormValues>();
   const { message, notification } = App.useApp();
@@ -56,8 +66,14 @@ export function DefectCreateModal({
   const [submitting, setSubmitting] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
 
+  // 每次打开时套用预填值（弹窗不销毁，表单状态会保留，所以在打开时设置）
+  useEffect(() => {
+    if (open && initialValues) form.setFieldsValue(initialValues);
+  }, [open, initialValues, form]);
+
   const done = (created: DefectRow, warning?: string) => {
     void qc.invalidateQueries({ queryKey: ['defects', projectKey] });
+    onCreated?.(created);
     // 提示框渲染在路由之外，不能放 <Link>（会因拿不到路由上下文整页崩掉）；用普通链接 + 这里的 navigate 跳转
     const href = `/p/${projectKey}/bugs/${created.code}`;
     const link = (

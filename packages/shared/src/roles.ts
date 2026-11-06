@@ -25,7 +25,9 @@ export type Permission =
   | 'project.configure'
   | 'project.members'
   | 'inbox.manage'
-  | 'report.view';
+  | 'report.view'
+  | 'test.view'
+  | 'test.manage';
 
 const ALL: ProjectRole[] = ['admin', 'product', 'tester', 'developer', 'viewer'];
 const EDITORS: ProjectRole[] = ['admin', 'product', 'tester', 'developer'];
@@ -44,6 +46,9 @@ export const PERMISSION_MATRIX: Record<Permission, ProjectRole[]> = {
   'project.members': ['admin'],
   'inbox.manage': ['admin', 'product', 'tester'],
   'report.view': ALL,
+  // 自动化测试：所有成员可查看用例与执行记录；编写、审核用例和录入执行结果限测试、产品、管理员
+  'test.view': ALL,
+  'test.manage': ['admin', 'product', 'tester'],
 };
 
 export function hasPermission(role: ProjectRole | undefined, permission: Permission): boolean {

@@ -19,6 +19,7 @@ import { MaintenanceModule } from './maintenance/maintenance.module';
 import { ReportsModule } from './reports/reports.module';
 import { StorageModule } from './storage/storage.module';
 import { SystemModule } from './system/system.module';
+import { TestingModule } from './testing/testing.module';
 import { UsersController } from './users/users.controller';
 import { ViewsModule } from './views/views.module';
 
@@ -49,6 +50,7 @@ import { ViewsModule } from './views/views.module';
     MaintenanceModule,
     ViewsModule,
     SystemModule,
+    TestingModule,
   ],
   controllers: [HealthController, UsersController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

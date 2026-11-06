@@ -65,7 +65,7 @@ npx tsx scripts/simulate-app-defect.ts --app com.example.app
 
 3. 在项目目录打开 Claude Code，输入 `/mcp__defects__fix_bug APP-1024`，或直接说“看一下 APP-1024 并修复”。
 
-MCP 工具：`search_defects`、`get_defect`、`get_screenshots`、`get_video_frames`、`grep_log`、`read_log`、`download_attachments`、`add_comment`、`transition_defect`、`link_commit`；资源 `defect://<编号>`；提示词 `fix_bug`。只读 Token 不能调用写工具。
+MCP 工具：`search_defects`、`get_defect`、`get_screenshots`、`get_video_frames`、`grep_log`、`read_log`、`download_attachments`、`add_comment`、`transition_defect`、`link_commit`、`list_test_cases`、`save_test_cases`；资源 `defect://<编号>`；提示词 `fix_bug`、`gen_test_cases`（读取需求文档生成测试用例，写入「自动化测试 › 用例库」待审核，如 `/mcp__defects__gen_test_cases APP <文档链接>`）。只读 Token 不能调用写工具。
 
 ## 关键设计
 

@@ -4,3 +4,4 @@ export * from './workflow';
 export * from './reports';
 export * from './filters';
 export * from './display';
+export * from './testing';

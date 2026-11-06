@@ -10,6 +10,10 @@ import type {
   ProjectSummary,
   SavedViewItem,
   SystemVersion,
+  TestCaseItem,
+  TestCaseModule,
+  TestRunDetail,
+  TestRunItem,
   UpdateStatus,
 } from './types';
 
@@ -26,6 +30,8 @@ export const qk = {
   notifications: ['notifications'] as const,
   report: (key: string, name: string, query: Record<string, unknown>) =>
     ['report', key, name, query] as const,
+  /** 自动化测试：用例、模块、执行记录都以 tests/<项目> 为前缀，修改后整体失效 */
+  tests: (key: string) => ['tests', key] as const,
   systemVersion: ['system', 'version'] as const,
   updateStatus: ['system', 'update'] as const,
 };
@@ -149,5 +155,38 @@ export function usePendingUserCount(enabled: boolean) {
     queryFn: () => api<{ count: number }>('/admin/users/pending-count'),
     enabled,
     refetchInterval: 60_000,
+  });
+}
+
+/** 用例库分页列表 */
+export function useTestCases(key: string, query: Record<string, unknown>) {
+  return useQuery({
+    queryKey: [...qk.tests(key), 'cases', query],
+    queryFn: () => api<Page<TestCaseItem>>(`/projects/${key}/tests/cases`, { query }),
+    placeholderData: (prev) => prev,
+  });
+}
+
+/** 用例库里出现过的模块（筛选下拉） */
+export function useTestCaseModules(key: string) {
+  return useQuery({
+    queryKey: [...qk.tests(key), 'modules'],
+    queryFn: () => api<TestCaseModule[]>(`/projects/${key}/tests/cases/modules`),
+  });
+}
+
+/** 执行记录列表 */
+export function useTestRuns(key: string) {
+  return useQuery({
+    queryKey: [...qk.tests(key), 'runs'],
+    queryFn: () => api<TestRunItem[]>(`/projects/${key}/tests/runs`),
+  });
+}
+
+/** 一次执行的详情（全部用例结果） */
+export function useTestRun(key: string, id: string) {
+  return useQuery({
+    queryKey: [...qk.tests(key), 'run', id],
+    queryFn: () => api<TestRunDetail>(`/projects/${key}/tests/runs/${id}`),
   });
 }
